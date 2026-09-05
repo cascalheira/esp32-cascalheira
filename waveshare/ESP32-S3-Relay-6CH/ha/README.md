@@ -40,3 +40,12 @@ Devices & services → ESPHome → the device entry → **Configure** → enable
 the device**. The lines then appear in HA's own log (Settings → System → Logs, search for the
 device name); set the logger level for `homeassistant.components.esphome` to `debug` to see
 below warnings. The USB console keeps working as before.
+
+## 4. Dashboard
+
+`dashboard/relay6.yaml` is a ready-made dashboard with three views: Relays (status, six
+relay tiles, mode, exclusive, buzzer, safeguards), Irrigation (the Garden Irrigation card) and
+Diagnostics (uptime, reset reason, firmware, memory and WiFi history for the soak test, cold-boot
+states, restart). Install it via Settings → Dashboards → Add dashboard → From scratch → Edit →
+Raw configuration editor → paste. Entity ids assume the device is named "Rega" (`rega_`
+prefix); adapt the prefix if yours differ (see the header comment in the file).

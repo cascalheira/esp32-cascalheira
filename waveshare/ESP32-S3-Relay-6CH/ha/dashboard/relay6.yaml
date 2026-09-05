@@ -1,0 +1,232 @@
+# Home Assistant dashboard for the relay board ("Rega").
+# Install: Settings → Dashboards → Add dashboard → "New dashboard from scratch" → open it →
+# ⋮ → Edit dashboard → ⋮ → Raw configuration editor → paste this file → Save.
+# Entity ids assume the device is named "Rega" (prefix `rega_`). If yours differ, replace the
+# prefix, e.g.: sed 's/\.rega_/.relay_board_/g' relay6.yaml
+title: Rega
+views:
+  - title: Relays
+    path: relays
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Status
+            icon: mdi:lan-connect
+          - type: tile
+            entity: sensor.rega_link
+            name: Link
+            icon: mdi:lan-connect
+            color: green
+          - type: tile
+            entity: sensor.rega_device_local_time
+            name: Device time
+            icon: mdi:clock-outline
+          - type: tile
+            entity: binary_sensor.rega_schedule_loaded
+            name: Offline schedule
+            icon: mdi:calendar-check
+          - type: markdown
+            content: >-
+              **Schedule:** {{ states('sensor.rega_schedule') }}
+
+              **Mode:** {{ states('select.rega_mode') }}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Relays
+            icon: mdi:electric-switch
+          - type: tile
+            entity: switch.rega_relay_1
+            name: Relay 1
+            features:
+              - type: toggle
+          - type: tile
+            entity: switch.rega_relay_2
+            name: Relay 2
+            features:
+              - type: toggle
+          - type: tile
+            entity: switch.rega_relay_3
+            name: Relay 3
+            features:
+              - type: toggle
+          - type: tile
+            entity: switch.rega_relay_4
+            name: Relay 4
+            features:
+              - type: toggle
+          - type: tile
+            entity: switch.rega_relay_5
+            name: Relay 5
+            features:
+              - type: toggle
+          - type: tile
+            entity: switch.rega_relay_6
+            name: Relay 6
+            features:
+              - type: toggle
+          - type: tile
+            entity: button.rega_all_relays_off
+            name: All relays off
+            icon: mdi:power-off
+            color: red
+            tap_action:
+              action: perform-action
+              perform_action: button.press
+              target:
+                entity_id: button.rega_all_relays_off
+      - type: grid
+        cards:
+          - type: heading
+            heading: Behaviour
+            icon: mdi:tune
+          - type: entities
+            entities:
+              - entity: select.rega_mode
+                name: Mode
+              - entity: switch.rega_exclusive_mode
+                name: Exclusive (one relay at a time)
+              - entity: switch.rega_buzzer
+                name: Buzzer
+          - type: heading
+            heading: Safeguards (max on time, minutes; 0 = off)
+            icon: mdi:timer-off-outline
+          - type: entities
+            entities:
+              - entity: number.rega_relay_1_max_on_time
+                name: Relay 1
+              - entity: number.rega_relay_2_max_on_time
+                name: Relay 2
+              - entity: number.rega_relay_3_max_on_time
+                name: Relay 3
+              - entity: number.rega_relay_4_max_on_time
+                name: Relay 4
+              - entity: number.rega_relay_5_max_on_time
+                name: Relay 5
+              - entity: number.rega_relay_6_max_on_time
+                name: Relay 6
+          - type: conditional
+            conditions:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: binary_sensor.rega_relay_1_safeguard_tripped
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_2_safeguard_tripped
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_3_safeguard_tripped
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_4_safeguard_tripped
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_5_safeguard_tripped
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_6_safeguard_tripped
+                    state: "on"
+            card:
+              type: entities
+              title: Safeguard tripped
+              state_color: true
+              entities:
+                - binary_sensor.rega_relay_1_safeguard_tripped
+                - binary_sensor.rega_relay_2_safeguard_tripped
+                - binary_sensor.rega_relay_3_safeguard_tripped
+                - binary_sensor.rega_relay_4_safeguard_tripped
+                - binary_sensor.rega_relay_5_safeguard_tripped
+                - binary_sensor.rega_relay_6_safeguard_tripped
+
+  - title: Irrigation
+    path: irrigation
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        column_span: 2
+        cards:
+          - type: custom:garden-irrigation-card
+
+  - title: Diagnostics
+    path: diagnostics
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Device
+            icon: mdi:chip
+          - type: entities
+            entities:
+              - entity: sensor.rega_uptime
+                name: Uptime
+              - entity: sensor.rega_last_reset_reason
+                name: Last reset reason
+              - entity: sensor.rega_firmware_update
+                name: Firmware
+              - entity: sensor.rega_wifi_signal
+                name: WiFi signal
+              - entity: sensor.rega_free_heap
+                name: Free heap
+              - entity: sensor.rega_lowest_free_heap
+                name: Lowest free heap
+              - entity: sensor.rega_schedule_revision
+                name: Schedule revision
+          - type: tile
+            entity: button.rega_restart
+            name: Restart board
+            icon: mdi:restart
+            tap_action:
+              action: perform-action
+              perform_action: button.press
+              target:
+                entity_id: button.rega_restart
+              confirmation:
+                text: Restart the relay board?
+      - type: grid
+        cards:
+          - type: heading
+            heading: Memory (soak test)
+            icon: mdi:memory
+          - type: history-graph
+            hours_to_show: 168
+            entities:
+              - entity: sensor.rega_free_heap
+                name: Free
+              - entity: sensor.rega_lowest_free_heap
+                name: Lowest
+          - type: history-graph
+            hours_to_show: 168
+            entities:
+              - entity: sensor.rega_wifi_signal
+                name: WiFi dBm
+      - type: grid
+        cards:
+          - type: heading
+            heading: Cold-boot state (clock unknown)
+            icon: mdi:shield-half-full
+          - type: entities
+            entities:
+              - entity: switch.rega_relay_1_on_when_clock_unknown
+                name: Relay 1
+              - entity: switch.rega_relay_2_on_when_clock_unknown
+                name: Relay 2
+              - entity: switch.rega_relay_3_on_when_clock_unknown
+                name: Relay 3
+              - entity: switch.rega_relay_4_on_when_clock_unknown
+                name: Relay 4
+              - entity: switch.rega_relay_5_on_when_clock_unknown
+                name: Relay 5
+              - entity: switch.rega_relay_6_on_when_clock_unknown
+                name: Relay 6
+          - type: history-graph
+            hours_to_show: 168
+            entities:
+              - entity: sensor.rega_link
+                name: Link
