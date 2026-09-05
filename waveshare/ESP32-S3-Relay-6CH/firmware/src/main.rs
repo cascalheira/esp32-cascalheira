@@ -85,7 +85,10 @@ const LED_PORTAL: RGB8 = RGB8 { r: 0, g: 0, b: 28 };
 fn main() -> Result<()> {
     esp_idf_svc::sys::link_patches();
     logger::install();
-    log::info!("relay-fw {FW_VERSION} starting, slot {}", ota::running_slot());
+    let reset_reason = reset_reason();
+    log::info!("relay-fw {FW_VERSION} starting, slot {}, reset reason: {reset_reason}, free heap {} B", ota::running_slot(), unsafe {
+        esp_idf_svc::sys::esp_get_free_heap_size()
+    });
 
     let p = Peripherals::take()?;
     // Task watchdog on the main loop; the 1 s ticker guarantees regular feeding.
@@ -563,8 +566,34 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
     server.set_state(keys.link, State::Text(link.unwrap_or(ctl.link()).as_str().into()));
     server.set_state(keys.local_time, State::Text(clock.local_string()));
     server.set_state(keys.uptime, State::Float(0.0));
+    server.set_state(keys.reset_reason, State::Text(reset_reason()));
     publish_heap(server, keys);
     publish_schedule(server, keys, ctl.schedule(), None);
+}
+
+/// Why the chip last (re)started, as ESP-IDF reports it.
+#[allow(non_upper_case_globals)]
+fn reset_reason() -> String {
+    use esp_idf_svc::sys::*;
+    let r = unsafe { esp_reset_reason() };
+    match r {
+        esp_reset_reason_t_ESP_RST_POWERON => "power on".into(),
+        esp_reset_reason_t_ESP_RST_EXT => "external reset pin".into(),
+        esp_reset_reason_t_ESP_RST_SW => "software restart (OTA, button, HA)".into(),
+        esp_reset_reason_t_ESP_RST_PANIC => "PANIC (crash)".into(),
+        esp_reset_reason_t_ESP_RST_INT_WDT => "interrupt watchdog".into(),
+        esp_reset_reason_t_ESP_RST_TASK_WDT => "TASK WATCHDOG (main loop stalled)".into(),
+        esp_reset_reason_t_ESP_RST_WDT => "other watchdog".into(),
+        esp_reset_reason_t_ESP_RST_DEEPSLEEP => "deep sleep wake".into(),
+        esp_reset_reason_t_ESP_RST_BROWNOUT => "BROWNOUT (power supply)".into(),
+        esp_reset_reason_t_ESP_RST_SDIO => "sdio".into(),
+        esp_reset_reason_t_ESP_RST_USB => "USB reset".into(),
+        esp_reset_reason_t_ESP_RST_JTAG => "JTAG reset".into(),
+        esp_reset_reason_t_ESP_RST_EFUSE => "efuse error".into(),
+        esp_reset_reason_t_ESP_RST_PWR_GLITCH => "POWER GLITCH".into(),
+        esp_reset_reason_t_ESP_RST_CPU_LOCKUP => "CPU LOCKUP".into(),
+        other => format!("unknown ({other})"),
+    }
 }
 
 fn publish_heap(server: &Server, keys: &Keys) -> (u32, u32) {

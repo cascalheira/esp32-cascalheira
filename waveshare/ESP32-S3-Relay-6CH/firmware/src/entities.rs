@@ -49,6 +49,7 @@ pub struct Keys {
     pub buzzer: u32,
     pub heap: u32,
     pub heap_min: u32,
+    pub reset_reason: u32,
 }
 
 impl Keys {
@@ -131,6 +132,7 @@ pub fn build() -> (Registry, Keys) {
             0,
             SensorStateClass::StateClassMeasurement,
         ),
+        reset_reason: r.text_sensor(Meta::new("reset_reason", "Last reset reason").icon("mdi:restart-alert").diagnostic()),
         heap_min: r.sensor(
             Meta::new("heap_min", "Lowest free heap").icon("mdi:memory").device_class("data_size").diagnostic(),
             "B",
