@@ -7,7 +7,7 @@ no PSRAM, external SMA antenna).
 | Function | GPIO | Notes |
 |---|---|---|
 | Relay CH1..CH6 | 1, 2, 41, 42, 45, 46 | Active-high. 100K pull-down on each driver base, so OFF at boot. GPIO45/46 are strapping pins: never add pull-ups. |
-| RGB LED | 38 | Single WS2812B on 3V3 |
+| RGB LED | 38 | Single WS2812B-0807 on 3V3. Takes **RGB** byte order (not the usual GRB): swap R/G when using a standard WS2812 driver. |
 | Buzzer | 21 | Passive, needs PWM (LEDC) |
 | RS485 | TX 17, RX 18 (UART1) | Direction is hardware-automatic (no DE/RE pin); 120 R terminator via jumper H3, off by default; isolated ground |
 | BOOT button | 0 | Active low, 10K pull-up. Firmware: 5 s = setup AP, 15 s = factory reset |
