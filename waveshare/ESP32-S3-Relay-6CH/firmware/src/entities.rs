@@ -45,6 +45,9 @@ pub struct Keys {
     pub clear_schedule: u32,
     pub ota: u32,
     pub ota_status: u32,
+    pub buzzer: u32,
+    pub heap: u32,
+    pub heap_min: u32,
 }
 
 impl Keys {
@@ -110,6 +113,19 @@ pub fn build() -> (Registry, Keys) {
         clear_schedule: r.service("clear_schedule", &[]),
         ota: r.service("ota", &[("url", ServiceArgType::String)]),
         ota_status: r.text_sensor(Meta::new("ota_status", "Firmware update").icon("mdi:update").diagnostic()),
+        buzzer: r.switch(Meta::new("buzzer", "Buzzer").icon("mdi:volume-high").config()),
+        heap: r.sensor(
+            Meta::new("heap", "Free heap").icon("mdi:memory").device_class("data_size").diagnostic(),
+            "B",
+            0,
+            SensorStateClass::StateClassMeasurement,
+        ),
+        heap_min: r.sensor(
+            Meta::new("heap_min", "Lowest free heap").icon("mdi:memory").device_class("data_size").diagnostic(),
+            "B",
+            0,
+            SensorStateClass::StateClassMeasurement,
+        ),
     };
     (r, keys)
 }

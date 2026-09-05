@@ -57,11 +57,18 @@ pub struct Config {
     /// that must never run together.
     #[serde(default)]
     pub exclusive: bool,
+    /// Audible feedback (boot, portal, safeguard trips, reset, OTA) on the on-board buzzer.
+    #[serde(default = "default_true")]
+    pub buzzer: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Auto, channels: [ChannelConfig::default(); CHANNELS], offline_grace_s: 0, exclusive: false }
+        Config { mode: Mode::Auto, channels: [ChannelConfig::default(); CHANNELS], offline_grace_s: 0, exclusive: false, buzzer: true }
     }
 }
 
@@ -91,6 +98,7 @@ mod tests {
         assert_eq!(partial.mode, Mode::Manual);
         assert_eq!(partial.offline_grace_s, 0);
         assert!(!partial.exclusive, "old configs without the field default to off");
+        assert!(partial.buzzer, "buzzer defaults to on for old configs");
         assert_eq!(Mode::parse(" OFF "), Some(Mode::Off));
         assert_eq!(Mode::parse("nope"), None);
     }

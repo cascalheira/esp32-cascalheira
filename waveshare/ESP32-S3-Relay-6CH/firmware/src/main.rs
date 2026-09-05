@@ -1,5 +1,6 @@
 //! relay-fw: ESPHome-native-API firmware for the Waveshare ESP32-S3-Relay-6CH.
 
+mod buzzer;
 mod clock;
 mod entities;
 mod ota;
@@ -28,6 +29,7 @@ use relay_core::{Action, Controller, Link, Schedule, CHANNELS};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_esp32_rmt_driver::Ws2812Esp32Rmt;
 
+use crate::buzzer::{Buzzer, Tone};
 use crate::clock::Clock;
 use crate::entities::Keys;
 use crate::portal::PortalContext;
@@ -202,6 +204,7 @@ fn main() -> Result<()> {
     let schedule = store.load_schedule();
     let mut clock = Clock::new(store.load_tz().or_else(|| (!schedule.tz.is_empty()).then(|| schedule.tz.clone())));
     let mut ctl = Controller::new(cfg, schedule);
+    let buzzer = Buzzer::spawn(p.ledc.timer0, p.ledc.channel0, AnyOutputPin::from(p.pins.gpio21), ctl.config().buzzer)?;
 
     // API server and entities.
     let (registry, keys) = entities::build();
@@ -212,6 +215,7 @@ fn main() -> Result<()> {
     if ap_active {
         led.set(LED_PORTAL);
     }
+    buzzer.play(Tone::Boot);
 
     // Main loop.
     let boot = Instant::now();
@@ -250,6 +254,10 @@ fn main() -> Result<()> {
                 if tick_count % 30 == 0 {
                     server.publish_state(keys.uptime, State::Float((now_ms / 1000) as f32));
                     server.set_state(keys.local_time, State::Text(clock.local_string()));
+                    let (free, min) = publish_heap(&server, &keys);
+                    if tick_count % 600 == 0 {
+                        log::info!("heap free {free} B, lowest {min} B, uptime {} s", now_ms / 1000);
+                    }
                 }
                 // The image proved itself: an HA client got through, or we ran 5 minutes.
                 if !image_confirmed && (ha_clients > 0 || tick_count > 300) {
@@ -259,6 +267,7 @@ fn main() -> Result<()> {
                 // Portal policy: open after a long outage, close after a while once back online.
                 if !ap_active && creds_exist && matches!(sta_down_since, Some(t) if t.elapsed() > PORTAL_AFTER_OFFLINE) {
                     log::warn!("station down for 10 min: opening setup access point");
+                    buzzer.play(Tone::PortalOpen);
                     ap_active = true;
                     portal_since = Some(Instant::now());
                     portal_ctx.ap_active.store(true, Ordering::Relaxed);
@@ -305,6 +314,7 @@ fn main() -> Result<()> {
             Msg::LongPress => {
                 ap_active = !ap_active;
                 portal_ctx.ap_active.store(ap_active, Ordering::Relaxed);
+                buzzer.play(if ap_active { Tone::PortalOpen } else { Tone::PortalClose });
                 if ap_active {
                     log::warn!("button: opening setup access point {node_name} (password {})", wifi::AP_PASSWORD);
                     portal_since = Some(Instant::now());
@@ -319,6 +329,7 @@ fn main() -> Result<()> {
             }
             Msg::FactoryReset => {
                 log::warn!("button held 15 s: FACTORY RESET");
+                buzzer.play(Tone::FactoryReset);
                 for _ in 0..6 {
                     led.set(RGB8 { r: 40, g: 0, b: 0 });
                     thread::sleep(Duration::from_millis(120));
@@ -352,6 +363,11 @@ fn main() -> Result<()> {
             Msg::Rssi(v) => server.publish_state(keys.rssi, State::Float(v as f32)),
             Msg::OtaStatus(text) => {
                 log::info!("ota: {text}");
+                if text.starts_with("installed") {
+                    buzzer.play(Tone::OtaDone);
+                } else if text.starts_with("failed") {
+                    buzzer.play(Tone::Error);
+                }
                 server.set_state(keys.ota_status, State::Text(text));
             }
             Msg::Api(cmd) => match cmd {
@@ -375,6 +391,17 @@ fn main() -> Result<()> {
                                 led.set(if wifi_up { LED_WIFI_NO_HA } else { LED_NO_WIFI });
                             }
                         }
+                    }
+                }
+                Command::Switch { key, on } if key == keys.buzzer => {
+                    ctl.set_buzzer(on);
+                    buzzer.set_enabled(on);
+                    if let Err(e) = store.save_config(ctl.config()) {
+                        log::error!("save config: {e}");
+                    }
+                    server.set_state(key, State::Bool(on));
+                    if on {
+                        buzzer.play(Tone::Boot);
                     }
                 }
                 Command::Switch { key, on } if key == keys.exclusive => {
@@ -476,12 +503,12 @@ fn main() -> Result<()> {
             },
         }
 
-        apply(&mut relays, &server, &keys, &mut tripped, actions);
+        apply(&mut relays, &server, &keys, &mut tripped, &buzzer, actions);
     }
     Ok(())
 }
 
-fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool; CHANNELS], actions: Vec<Action>) {
+fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool; CHANNELS], buzzer: &Buzzer, actions: Vec<Action>) {
     for a in actions {
         match a {
             Action::SetRelay { ch, on } => {
@@ -502,6 +529,7 @@ fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool
             }
             Action::SafeguardTripped { ch } => {
                 log::warn!("safeguard tripped on relay {}", ch + 1);
+                buzzer.play(Tone::Safeguard);
                 tripped[ch] = true;
                 server.set_state(keys.tripped[ch], State::Bool(true));
             }
@@ -519,10 +547,19 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
     }
     server.set_state(keys.mode, State::Text(entities::mode_label(cfg.mode).into()));
     server.set_state(keys.exclusive, State::Bool(cfg.exclusive));
+    server.set_state(keys.buzzer, State::Bool(cfg.buzzer));
     server.set_state(keys.link, State::Text(link.unwrap_or(ctl.link()).as_str().into()));
     server.set_state(keys.local_time, State::Text(clock.local_string()));
     server.set_state(keys.uptime, State::Float(0.0));
+    publish_heap(server, keys);
     publish_schedule(server, keys, ctl.schedule(), None);
+}
+
+fn publish_heap(server: &Server, keys: &Keys) -> (u32, u32) {
+    let (free, min) = unsafe { (esp_idf_svc::sys::esp_get_free_heap_size(), esp_idf_svc::sys::esp_get_minimum_free_heap_size()) };
+    server.set_state(keys.heap, State::Float(free as f32));
+    server.set_state(keys.heap_min, State::Float(min as f32));
+    (free, min)
 }
 
 fn publish_schedule(server: &Server, keys: &Keys, s: &Schedule, error: Option<&str>) {

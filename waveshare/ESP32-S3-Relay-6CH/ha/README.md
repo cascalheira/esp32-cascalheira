@@ -8,7 +8,7 @@ paste the `NOISE_PSK` value from `firmware/secrets.env`. If discovery does not p
 **ESPHome** integration manually with the device IP and port 6053.
 
 Entities created (device name prefix omitted): Relay 1..6 (switch), Relay N max on time
-(number, minutes, 0 = off), Relay N safeguard tripped (binary sensor), Mode (auto/manual/off), Exclusive mode (switch: only one relay on at a time),
+(number, minutes, 0 = off), Relay N safeguard tripped (binary sensor), Mode (auto/manual/off), Exclusive mode (switch: only one relay on at a time), Buzzer (switch), Free heap / Lowest free heap (sensors),
 Link, Device local time, Schedule, Schedule loaded, Schedule revision, Uptime, WiFi signal,
 All relays off, Restart. Actions: `esphome.<node>_set_schedule(json)` and
 `esphome.<node>_clear_schedule`.

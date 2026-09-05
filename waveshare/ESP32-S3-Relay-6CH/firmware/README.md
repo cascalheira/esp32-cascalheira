@@ -65,6 +65,8 @@ reconnects live; a new name or key restarts the device after 25 s.
 
 LED colours: red = no WiFi, amber = WiFi but no Home Assistant, green = online, blue = setup AP.
 
+Buzzer (can be muted with the Buzzer switch in HA): two-tone chirp at boot, rising/falling triad when the setup AP opens/closes, three beeps on a safeguard trip, long low tone on factory reset, double beep when an OTA image is installed, low tone on OTA failure.
+
 ## Reset behaviour
 
 - **RESET button / power cycle**: plain reboot. Everything persists (WiFi, API key, names, mode,

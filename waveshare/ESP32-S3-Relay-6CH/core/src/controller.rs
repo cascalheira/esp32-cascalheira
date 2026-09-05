@@ -193,6 +193,10 @@ impl Controller {
         out
     }
 
+    pub fn set_buzzer(&mut self, on: bool) {
+        self.cfg.buzzer = on;
+    }
+
     pub fn set_offline_grace_s(&mut self, secs: u32, now_ms: u64, local: Option<LocalTime>) -> Vec<Action> {
         self.cfg.offline_grace_s = secs;
         self.refresh(now_ms, local)
