@@ -1,6 +1,6 @@
 {
-  "version": "0.13.0",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.13.0/relay-fw-0.13.0.bin",
-  "summary": "Crash report: a Last crash sensor with the reason, task, address and panic message of the previous crash, plus a clear button. Requires the new coredump partition (flash once over USB with the updated partitions.csv); boards without it still run but cannot record dumps.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.13.0"
+  "version": "0.14.0",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.14.0/relay-fw-0.14.0.bin",
+  "summary": "Schedule preview: the board's setup page shows the stored weekly plan as a grid per relay, with today outlined, the current time marked and the mode/link/rain-hold status.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.14.0"
 }
