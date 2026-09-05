@@ -15,7 +15,7 @@ pub mod session;
 pub mod varint;
 
 pub use device::Device;
-pub use entity::{Kind, Meta, Registry, State};
+pub use entity::{Kind, Meta, Registry, State, UpdateState};
 pub use server::Server;
 pub use session::{Command, Event, Session};
 

@@ -56,6 +56,7 @@ pub struct Keys {
     pub reset_reason: u32,
     pub rain_hold_hours: u32,
     pub rain_hold: u32,
+    pub update: u32,
 }
 
 impl Keys {
@@ -183,6 +184,7 @@ pub fn build() -> (Registry, Keys) {
             NumberMode::Box,
         ),
         rain_hold: r.text_sensor(Meta::new("rain_hold", "Rain hold until").icon("mdi:weather-pouring")),
+        update: r.update(Meta::new("firmware", "Firmware").config()),
         reset_reason: r.text_sensor(Meta::new("reset_reason", "Last reset reason").icon("mdi:restart-alert").diagnostic()),
         heap_min: r.sensor(
             Meta::new("heap_min", "Lowest free heap").icon("mdi:memory").device_class("data_size").diagnostic(),

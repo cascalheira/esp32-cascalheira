@@ -7,6 +7,7 @@ mod logger;
 mod ota;
 mod portal;
 mod settings;
+mod updater;
 mod wifi;
 
 use std::net::TcpListener;
@@ -25,7 +26,8 @@ use esp_idf_svc::mdns::EspMdns;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esphome_api::codec::Codec;
 use esphome_api::noise::{parse_psk, NoiseCodec};
-use esphome_api::{runner, Command, Device, Server, State};
+use esphome_api::{runner, Command, Device, Server, State, UpdateState};
+use crate::updater::Latest;
 use relay_core::{Action, Controller, Link, Schedule, CHANNELS};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_esp32_rmt_driver::Ws2812Esp32Rmt;
@@ -55,6 +57,8 @@ pub enum Msg {
     WifiDown,
     Rssi(i32),
     OtaStatus(String),
+    /// Result of a `latest.json` check.
+    UpdateInfo(Result<Latest, String>),
     LongPress,
     FactoryReset,
     PortalScan,
@@ -249,6 +253,10 @@ fn main() -> Result<()> {
     let mut tripped = [false; CHANNELS];
     let mut image_confirmed = false;
     let mut ota_running = false;
+    let mut latest: Option<Latest> = None;
+    let mut update_checked_at: Option<u64> = None;
+    let mut update_state = UpdateState { current_version: FW_VERSION.into(), latest_version: FW_VERSION.into(), title: "relay-fw".into(), ..Default::default() };
+    server.set_state(keys.update, State::Update(update_state.clone()));
     server.set_state(keys.ota_status, State::Text(format!("{FW_VERSION} idle")));
 
     for msg in rx {
@@ -280,6 +288,17 @@ fn main() -> Result<()> {
                     }
                     if tick_count % 600 == 0 {
                         log::info!("heap free {free} B, lowest {min} B, uptime {} s", now_ms / 1000);
+                    }
+                }
+                // Look for new firmware a minute after the network is up, then every 6 hours.
+                if wifi_up && !ota_running {
+                    let due = match update_checked_at {
+                        None => now_ms > 60_000,
+                        Some(t) => now_ms.saturating_sub(t) > 6 * 3600 * 1000,
+                    };
+                    if due {
+                        update_checked_at = Some(now_ms);
+                        spawn_update_check(tx.clone());
                     }
                 }
                 // The image proved itself: an HA client got through, or we ran 5 minutes.
@@ -384,8 +403,38 @@ fn main() -> Result<()> {
                 *portal_ctx.current.lock().unwrap() = new;
             }
             Msg::Rssi(v) => server.publish_state(keys.rssi, State::Float(v as f32)),
+            Msg::UpdateInfo(res) => {
+                match res {
+                    Ok(l) => {
+                        let newer = updater::is_newer(&l.version, FW_VERSION);
+                        log::info!("update check: latest {} ({}), running {FW_VERSION}", l.version, if newer { "newer" } else { "not newer" });
+                        update_state.latest_version = if newer { l.version.clone() } else { FW_VERSION.into() };
+                        update_state.release_summary = if newer { l.summary.clone() } else { String::new() };
+                        update_state.release_url = l.release_url.clone();
+                        latest = Some(l);
+                    }
+                    Err(e) => log::warn!("update check failed: {e}"),
+                }
+                server.set_state(keys.update, State::Update(update_state.clone()));
+            }
             Msg::OtaStatus(text) => {
                 log::info!("ota: {text}");
+                // Mirror progress into the update entity.
+                if let Some(pct) = text.strip_prefix("downloading ").and_then(|r| r.strip_suffix('%')).and_then(|p| p.parse::<f32>().ok()) {
+                    update_state.in_progress = true;
+                    update_state.has_progress = true;
+                    update_state.progress = pct;
+                } else if text.starts_with("downloading") {
+                    update_state.in_progress = true;
+                    update_state.has_progress = false;
+                } else if text.starts_with("installed") {
+                    update_state.progress = 100.0;
+                } else if text.starts_with("failed") || text.starts_with("rejected") {
+                    update_state.in_progress = false;
+                    update_state.has_progress = false;
+                    update_state.progress = 0.0;
+                }
+                server.set_state(keys.update, State::Update(update_state.clone()));
                 if text.starts_with("installed") {
                     buzzer.play(Tone::OtaDone);
                 } else if text.starts_with("failed") || text.starts_with("rejected") {
@@ -544,6 +593,24 @@ fn main() -> Result<()> {
                     }
                 }
                 Command::Service { .. } => {}
+                Command::Update { key, command } if key == keys.update => match command {
+                    2 => {
+                        log::info!("update check requested from HA");
+                        update_checked_at = Some(now_ms);
+                        spawn_update_check(tx.clone());
+                    }
+                    1 => match &latest {
+                        Some(l) if updater::is_newer(&l.version, FW_VERSION) && !ota_running => {
+                            log::warn!("installing firmware {} from {}", l.version, l.url);
+                            ota_running = true;
+                            spawn_ota(l.url.clone(), tx.clone());
+                        }
+                        Some(_) => log::info!("install requested but no newer version is known"),
+                        None => log::warn!("install requested before any update check"),
+                    },
+                    _ => {}
+                },
+                Command::Update { .. } => {}
                 Command::Time { epoch_seconds, timezone } => {
                     clock.set_epoch(epoch_seconds);
                     if clock.set_tz(&timezone) {
@@ -724,6 +791,16 @@ fn start_mdns(server: &Server) -> Result<EspMdns> {
     mdns.add_service(Some(&dev.name), "_esphomelib", "_tcp", API_PORT, &pairs)?;
     log::info!("mdns: {}.local advertising _esphomelib._tcp:{API_PORT}", dev.name);
     Ok(mdns)
+}
+
+fn spawn_update_check(tx: Sender<Msg>) {
+    let res = thread::Builder::new().name("upd-check".into()).stack_size(12 * 1024).spawn(move || {
+        let r = updater::fetch_latest(updater::LATEST_URL).map_err(|e| format!("{e:#}"));
+        let _ = tx.send(Msg::UpdateInfo(r));
+    });
+    if let Err(e) = res {
+        log::error!("could not spawn update check: {e}");
+    }
 }
 
 fn spawn_ota(url: String, tx: Sender<Msg>) {

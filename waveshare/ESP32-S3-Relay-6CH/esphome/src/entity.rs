@@ -19,6 +19,21 @@ pub enum State {
     Bool(bool),
     Float(f32),
     Text(String),
+    Update(UpdateState),
+}
+
+/// State of a firmware `update` entity (HA shows an Install button when `latest_version`
+/// differs from `current_version`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UpdateState {
+    pub in_progress: bool,
+    pub has_progress: bool,
+    pub progress: f32,
+    pub current_version: String,
+    pub latest_version: String,
+    pub title: String,
+    pub release_summary: String,
+    pub release_url: String,
 }
 
 /// Common fields for every entity.
@@ -85,6 +100,8 @@ pub enum Kind {
     Sensor(SensorSpec),
     TextSensor,
     Button,
+    /// Firmware update entity; HA sends `UpdateCommandRequest` (check / install).
+    Update,
     /// User-defined service (`esphome.<device>_<name>` action in HA). Has no state.
     Service { args: Vec<ServiceArg> },
 }
@@ -179,6 +196,16 @@ impl Entity {
                 device_class: m.device_class.clone(),
                 device_id: 0,
             }),
+            Kind::Update => RawMessage::encode(&proto::ListEntitiesUpdateResponse {
+                object_id: m.object_id.clone(),
+                key: self.key,
+                name: m.name.clone(),
+                icon: m.icon.clone(),
+                disabled_by_default: m.disabled_by_default,
+                entity_category: cat,
+                device_class: if m.device_class.is_empty() { "firmware".into() } else { m.device_class.clone() },
+                device_id: 0,
+            }),
             Kind::Button => RawMessage::encode(&proto::ListEntitiesButtonResponse {
                 object_id: m.object_id.clone(),
                 key: self.key,
@@ -245,6 +272,19 @@ impl Entity {
                 missing_state: false,
                 device_id: 0,
             }),
+            (Kind::Update, State::Update(u)) => RawMessage::encode(&proto::UpdateStateResponse {
+                key,
+                missing_state: false,
+                in_progress: u.in_progress,
+                has_progress: u.has_progress,
+                progress: u.progress,
+                current_version: u.current_version.clone(),
+                latest_version: u.latest_version.clone(),
+                title: u.title.clone(),
+                release_summary: u.release_summary.clone(),
+                release_url: u.release_url.clone(),
+                device_id: 0,
+            }),
             _ => return None,
         })
     }
@@ -297,6 +337,10 @@ impl Registry {
 
     pub fn button(&mut self, meta: Meta) -> u32 {
         self.add(meta, Kind::Button)
+    }
+
+    pub fn update(&mut self, meta: Meta) -> u32 {
+        self.add(meta, Kind::Update)
     }
 
     /// `name` becomes the action `esphome.<device>_<name>` in HA.

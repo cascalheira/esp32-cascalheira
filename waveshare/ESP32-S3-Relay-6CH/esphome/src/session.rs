@@ -20,6 +20,8 @@ pub enum Command {
     Select { key: u32, option: String },
     Button { key: u32 },
     Service { key: u32, args: Vec<proto::ExecuteServiceArgument> },
+    /// Update entity command: 1 = install, 2 = check (proto `UpdateCommand`).
+    Update { key: u32, command: i32 },
     /// HA answered our `GetTimeRequest`.
     Time { epoch_seconds: u32, timezone: String },
     /// A client finished its handshake and subscribed to states (emitted by the runner).
@@ -228,6 +230,10 @@ impl Session {
             proto::ButtonCommandRequest::ID => {
                 let c: proto::ButtonCommandRequest = msg.decode()?;
                 events.push(Event::Command(Command::Button { key: c.key }));
+            }
+            proto::UpdateCommandRequest::ID => {
+                let c: proto::UpdateCommandRequest = msg.decode()?;
+                events.push(Event::Command(Command::Update { key: c.key, command: c.command }));
             }
             proto::ExecuteServiceRequest::ID => {
                 let c: proto::ExecuteServiceRequest = msg.decode()?;
