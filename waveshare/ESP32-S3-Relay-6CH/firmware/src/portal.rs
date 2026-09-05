@@ -64,6 +64,8 @@ pub struct PortalContext {
     pub current: std::sync::Mutex<NetSettings>,
     pub tx: Sender<Msg>,
     pub ap_active: Arc<AtomicBool>,
+    /// Pre-serialised JSON of the stored schedule and live state, refreshed by the main loop.
+    pub schedule_json: std::sync::Mutex<String>,
 }
 
 /// True when the request came in over the setup access point (client in 192.168.4.0/24).
@@ -144,6 +146,14 @@ pub fn start(ctx: Arc<PortalContext>) -> Result<EspHttpServer<'static>> {
                 via_ap: from_ap,
             })?
         };
+        req.into_response(200, Some("OK"), &[("Content-Type", "application/json"), ("Cache-Control", "no-store")])?
+            .write_all(body.as_bytes())?;
+        Ok(())
+    })?;
+
+    let c = ctx.clone();
+    server.fn_handler::<anyhow::Error, _>("/api/schedule", Method::Get, move |req| {
+        let body = c.schedule_json.lock().unwrap().clone();
         req.into_response(200, Some("OK"), &[("Content-Type", "application/json"), ("Cache-Control", "no-store")])?
             .write_all(body.as_bytes())?;
         Ok(())

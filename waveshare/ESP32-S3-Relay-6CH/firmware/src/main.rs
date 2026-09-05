@@ -218,6 +218,7 @@ fn main() -> Result<()> {
         current: Mutex::new(net.clone()),
         tx: tx.clone(),
         ap_active: Arc::new(AtomicBool::new(ap_active)),
+        schedule_json: Mutex::new("{}".into()),
     });
     let _http = portal::start(portal_ctx.clone())?;
     portal::spawn_captive_dns(portal_ctx.ap_active.clone())?;
@@ -642,6 +643,9 @@ fn main() -> Result<()> {
             },
         }
 
+        if !actions.is_empty() || (msg_kind == MsgKind::Tick && tick_count % 30 == 0) || tick_count < 3 {
+            *portal_ctx.schedule_json.lock().unwrap() = schedule_snapshot(&ctl, &clock, ha_clients, wifi_up);
+        }
         let any_on = ctl.relays().iter().any(|r| *r);
         let periodic = matches!(msg_kind, MsgKind::Tick) && any_on && tick_count % 300 == 0;
         let relay_off = actions.iter().any(|a| matches!(a, Action::SetRelay { on: false, .. } | Action::DayRolled | Action::DailyCapReached { .. }));
@@ -660,6 +664,52 @@ fn main() -> Result<()> {
         apply(&mut relays, &server, &keys, &mut tripped, &buzzer, actions);
     }
     Ok(())
+}
+
+/// JSON for the setup page's schedule preview: stored plan plus what the board is doing now.
+fn schedule_snapshot(ctl: &Controller, clock: &Clock, ha_clients: usize, wifi_up: bool) -> String {
+    let s = ctl.schedule();
+    let channels: serde_json::Map<String, serde_json::Value> = s
+        .channels
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| !b.is_empty())
+        .map(|(i, blocks)| {
+            (
+                (i + 1).to_string(),
+                serde_json::Value::Array(
+                    blocks
+                        .iter()
+                        .map(|b| serde_json::json!({"days": b.days.to_string(), "from": b.from, "to": b.to}))
+                        .collect(),
+                ),
+            )
+        })
+        .collect();
+    let rain_hold = match ctl.rain_hold_until() {
+        None => serde_json::Value::Null,
+        Some(u) => serde_json::Value::String(clock.format_epoch(u)),
+    };
+    let local = clock.local_time();
+    serde_json::json!({
+        "rev": s.rev,
+        "blocks": s.block_count(),
+        "tz": s.tz,
+        "mode": ctl.config().mode.as_str(),
+        "link": ctl.link().as_str(),
+        "ha_clients": ha_clients,
+        "wifi": wifi_up,
+        "local_time": clock.local_string(),
+        "weekday": local.map(|t| t.weekday as u8),
+        "minute": local.map(|t| t.minute),
+        "rain_hold_until": rain_hold,
+        "relays": ctl.relays(),
+        "on_today_min": ctl.on_today_min(),
+        "max_on_min": ctl.config().channels.iter().map(|c| c.max_on_min).collect::<Vec<_>>(),
+        "max_daily_min": ctl.config().channels.iter().map(|c| c.max_daily_min).collect::<Vec<_>>(),
+        "channels": channels,
+    })
+    .to_string()
 }
 
 /// Publish the rain-hold number (hours, as set) and its human-readable end time.

@@ -117,8 +117,13 @@ the time of the last transfer.
 While Home Assistant is running, **it** switches the relays, with rain and frost skips, soak
 cycles, notifications and so on. The board only listens.
 
-If it is raining and Home Assistant is down, set **Rain hold** (hours) on the device page, or via the
-setup page later, to pause the stored schedule.
+The board's own web page (http://\<board IP\>/, or http://192.168.4.1/ on the setup network) shows the
+stored plan as a weekly grid per relay, with today outlined, a red marker at the current time, relays
+that are on in green, and whether Home Assistant or the grid is in charge right now. Useful when
+Home Assistant is down and you want to know what will happen.
+
+If it is raining and Home Assistant is down, set **Rain hold** (hours) on the device page to pause
+the stored schedule; the web page shows the hold too.
 
 If Home Assistant becomes unreachable (server down, router down, network cable out), the board
 notices within about two minutes, switches to its stored plan and turns relays on and off at the

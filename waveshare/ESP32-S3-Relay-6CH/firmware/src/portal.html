@@ -13,6 +13,13 @@ button.secondary{background:#e8eaed;color:#222;margin-top:.5rem}
 .row{display:flex;gap:8px;align-items:center}.row input{flex:1}
 .status{font-size:.9rem;line-height:1.5}.ok{color:#188038}.bad{color:#c5221f}
 small{color:#777}
+.grid{display:grid;grid-template-columns:64px repeat(7,1fr);gap:3px 4px;margin-top:.6rem;font-size:.78rem;align-items:center}
+.grid .hd{text-align:center;color:#777}
+.grid .lbl{color:#333;white-space:nowrap}.grid .lbl.on{color:#188038;font-weight:600}
+.track{position:relative;height:14px;background:#eceff1;border-radius:3px;overflow:hidden}
+.track span{position:absolute;top:0;bottom:0;background:#1a73e8;border-radius:2px}
+.track.today{outline:1px solid #f9ab00}
+.track i{position:absolute;top:0;bottom:0;width:1px;background:#c5221f}
 </style></head><body><main>
 <h1>Relay board setup</h1>
 <div class="card status" id="status">Loading…</div>
@@ -20,6 +27,11 @@ small{color:#777}
 <small>Paste this when Home Assistant asks for the encryption key. Shown only while the setup network is active.</small>
 <div class="row" style="margin-top:.5rem"><input id="shownkey" readonly style="font-family:monospace;font-size:.85rem">
 <button type="button" class="secondary" style="width:auto;margin:0" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('shownkey').value);this.textContent='Copied'">Copy</button></div></div>
+<div class="card" id="schedcard">
+<b>Stored schedule</b> <small id="schedmeta"></small>
+<div id="schedgrid" class="grid"></div>
+<small id="schednote"></small>
+</div>
 <div class="card">
 <form id="f" onsubmit="return save(event)">
 <label>WiFi network</label>
@@ -55,5 +67,20 @@ async function save(ev){ev.preventDefault();const d={};new FormData($('f')).forE
 const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});const j=await r.json().catch(()=>({}));
 if(!j.ok){$('result').innerHTML=`<span class=bad>${j.error||'error'}</span>`;return false;}
 $('result').innerHTML='<span class=ok>Saved. Connecting…</span>';let n=0;const t=setInterval(async()=>{await status();n++;if(n>40)clearInterval(t);},1500);return false;}
-status();scan();setInterval(status,5000);
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const hm=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+async function schedule(){try{const s=await(await fetch('/api/schedule')).json();
+$('schedmeta').textContent=s.blocks?`rev ${s.rev} · ${s.blocks} block${s.blocks>1?'s':''}${s.tz?' · '+s.tz:''}`:'none stored';
+const g=$('schedgrid');g.innerHTML='<div></div>'+DAYS.map(d=>`<div class=hd>${d}</div>`).join('');
+for(let ch=1;ch<=6;ch++){const blocks=(s.channels&&s.channels[String(ch)])||[];
+g.innerHTML+=`<div class="lbl${s.relays&&s.relays[ch-1]?' on':''}" title="on today: ${s.on_today_min?s.on_today_min[ch-1]:0} min">Relay ${ch}</div>`;
+for(let d=0;d<7;d++){let spans='';for(const b of blocks){if(b.days[d]==='-')continue;
+spans+=`<span style="left:${b.from/1440*100}%;width:${(b.to-b.from)/1440*100}%" title="Relay ${ch} ${DAYS[d]} ${hm(b.from)}–${hm(b.to)}"></span>`;}
+const today=s.weekday===d;const now=today&&s.minute!=null?`<i style="left:${s.minute/1440*100}%"></i>`:'';
+g.innerHTML+=`<div class="track${today?' today':''}">${spans}${now}</div>`;}}
+const parts=[`Mode: ${s.mode}`,`Link: ${s.link}${s.ha_clients?` (${s.ha_clients} HA client${s.ha_clients>1?'s':''})`:''}`,`Board time: ${s.local_time}`];
+if(s.rain_hold_until)parts.push(`<span class=bad>Rain hold until ${s.rain_hold_until}: schedule paused</span>`);
+parts.push(s.link==='online'?'Home Assistant controls the relays; the grid shows the fallback plan.':'Home Assistant is not connected: the board follows this grid.');
+$('schednote').innerHTML=parts.join(' · ');}catch(e){}}
+status();scan();schedule();setInterval(status,5000);setInterval(schedule,15000);
 </script></body></html>
