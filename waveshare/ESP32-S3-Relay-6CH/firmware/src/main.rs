@@ -406,6 +406,15 @@ fn main() -> Result<()> {
                         buzzer.play(Tone::Boot);
                     }
                 }
+                Command::Switch { key, on } if keys.safe_state_channel(key).is_some() => {
+                    let ch = keys.safe_state_channel(key).unwrap();
+                    log::info!("relay {} safe state (clock unknown) = {}", ch + 1, if on { "ON" } else { "OFF" });
+                    actions.extend(ctl.set_safe_state(ch, on, now_ms));
+                    if let Err(e) = store.save_config(ctl.config()) {
+                        log::error!("save config: {e}");
+                    }
+                    server.set_state(key, State::Bool(on));
+                }
                 Command::Switch { key, on } if key == keys.exclusive => {
                     log::info!("exclusive mode {}", if on { "ON" } else { "OFF" });
                     actions.extend(ctl.set_exclusive(on, now_ms));
@@ -546,6 +555,7 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
         server.set_state(keys.relay[ch], State::Bool(ctl.relays()[ch]));
         server.set_state(keys.max_on[ch], State::Float(cfg.channels[ch].max_on_min as f32));
         server.set_state(keys.tripped[ch], State::Bool(false));
+        server.set_state(keys.safe_state[ch], State::Bool(cfg.channels[ch].safe_state));
     }
     server.set_state(keys.mode, State::Text(entities::mode_label(cfg.mode).into()));
     server.set_state(keys.exclusive, State::Bool(cfg.exclusive));

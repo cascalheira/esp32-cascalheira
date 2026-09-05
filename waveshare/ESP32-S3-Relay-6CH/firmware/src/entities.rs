@@ -30,6 +30,7 @@ pub struct Keys {
     pub relay: [u32; CHANNELS],
     pub max_on: [u32; CHANNELS],
     pub tripped: [u32; CHANNELS],
+    pub safe_state: [u32; CHANNELS],
     pub mode: u32,
     pub exclusive: u32,
     pub link: u32,
@@ -57,6 +58,9 @@ impl Keys {
     pub fn max_on_channel(&self, key: u32) -> Option<usize> {
         self.max_on.iter().position(|k| *k == key)
     }
+    pub fn safe_state_channel(&self, key: u32) -> Option<usize> {
+        self.safe_state.iter().position(|k| *k == key)
+    }
 }
 
 pub fn build() -> (Registry, Keys) {
@@ -64,6 +68,7 @@ pub fn build() -> (Registry, Keys) {
     let mut relay = [0u32; CHANNELS];
     let mut max_on = [0u32; CHANNELS];
     let mut tripped = [0u32; CHANNELS];
+    let mut safe_state = [0u32; CHANNELS];
     for i in 0..CHANNELS {
         let n = i + 1;
         relay[i] = r.switch(Meta::new(&format!("relay_{n}"), &format!("Relay {n}")).icon("mdi:electric-switch"));
@@ -80,11 +85,17 @@ pub fn build() -> (Registry, Keys) {
                 .device_class("problem")
                 .diagnostic(),
         );
+        safe_state[i] = r.switch(
+            Meta::new(&format!("relay_{n}_safe_state"), &format!("Relay {n} on when clock unknown"))
+                .icon("mdi:shield-half-full")
+                .config(),
+        );
     }
     let keys = Keys {
         relay,
         max_on,
         tripped,
+        safe_state,
         mode: r.select(
             Meta::new("mode", "Mode").icon("mdi:auto-mode").config(),
             &[MODE_LABELS[0].1, MODE_LABELS[1].1, MODE_LABELS[2].1],
