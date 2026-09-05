@@ -12,12 +12,12 @@ export RUSTUP_TOOLCHAIN=esp
 cargo build --release
 OUT=/tmp/relay-fw-$VER.bin
 espflash save-image --chip esp32s3 --flash-size 16mb target/xtensa-esp32s3-espidf/release/relay-fw "$OUT"
-gh release create "$TAG" "$OUT#relay-fw.bin" --repo "$REPO" --title "relay-fw $VER" --notes "$NOTES"
+gh release create "$TAG" "$OUT" --repo "$REPO" --title "relay-fw $VER" --notes "$NOTES"
 SUMMARY=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$NOTES")
 cat > release/latest.json <<JSONEOF
 {
   "version": "$VER",
-  "url": "https://github.com/$REPO/releases/download/$TAG/relay-fw.bin",
+  "url": "https://github.com/$REPO/releases/download/$TAG/relay-fw-$VER.bin",
   "summary": $SUMMARY,
   "release_url": "https://github.com/$REPO/releases/tag/$TAG"
 }

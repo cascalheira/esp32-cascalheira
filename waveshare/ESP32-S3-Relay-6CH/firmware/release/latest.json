@@ -1,6 +1,6 @@
 {
   "version": "0.12.1",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.12.1/relay-fw.bin",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.12.1/relay-fw-0.12.1.bin",
   "summary": "First release published through the update entity. Adds in-HA firmware updates, usage totals, daily caps and rain hold.",
   "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.12.1"
 }
