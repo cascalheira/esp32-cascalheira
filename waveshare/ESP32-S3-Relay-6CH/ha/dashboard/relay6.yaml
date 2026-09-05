@@ -259,6 +259,10 @@ views:
                 name: Uptime
               - entity: sensor.rega_last_reset_reason
                 name: Last reset reason
+              - entity: sensor.rega_last_crash
+                name: Last crash
+              - entity: button.rega_clear_crash_report
+                name: Clear crash report
               - entity: sensor.rega_firmware_update
                 name: Firmware
               - entity: sensor.rega_wifi_signal

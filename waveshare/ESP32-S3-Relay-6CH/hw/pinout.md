@@ -28,7 +28,8 @@ Six coils plus WiFi may brown out a weak USB port; use the DC terminal in deploy
 | phy_init | 0x11000 | 4 KB |
 | ota_0 | 0x20000 | 4 MB |
 | ota_1 | 0x420000 | 4 MB |
-| storage (spiffs, unused) | 0x820000 | 7 MB |
+| coredump | 0x820000 | 64 KB |
+| storage (spiffs, unused) | 0x830000 | 6.94 MB |
 
 Bootloader: the ESP-IDF build's `bootloader.bin` (rollback enabled), flashed with
 `espflash flash --bootloader ...`; espflash's bundled bootloader lacks rollback support.

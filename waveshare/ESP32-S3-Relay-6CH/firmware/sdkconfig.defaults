@@ -20,3 +20,10 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
 # Sockets: HTTP server (portal) + captive DNS + mDNS + SNTP + API listener + up to 3 API clients
 # + OTA download exceed the default of 10.
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# Core dump to flash so a crash leaves a summary the firmware can report in Home Assistant.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_LOGS=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=32

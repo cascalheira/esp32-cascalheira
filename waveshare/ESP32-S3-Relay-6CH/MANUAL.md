@@ -104,6 +104,7 @@ The device page shows everything the board offers. What each control does:
 | Restart | Restarts the board (nothing is lost). |
 | Link, Device local time, Schedule, Schedule loaded, Schedule revision | Status of the connection to Home Assistant and of the stored schedule. |
 | Uptime, WiFi signal, Free heap, Lowest free heap, Last reset reason, Firmware update | Health information. |
+| Last crash / Clear crash report | If the board ever crashes, this holds a one-line report (reason, firmware version, failing task and program address, and the error message when available) until you press Clear. "none" means no crash recorded. |
 
 ## 6. Schedules and what happens when Home Assistant is down
 
@@ -176,7 +177,7 @@ key on the page. The key is only ever shown there.
 | A relay switches off by itself after a while | Its max on time fired ("safeguard tripped"). Raise the limit or set it to 0. |
 | Only one relay ever stays on | Exclusive mode is on. |
 | Relays never move while Home Assistant is down | Mode is *Manual*, or no schedule was stored ("Schedule loaded" off). Edit a schedule in Garden Irrigation to resend it. |
-| Board restarts by itself | Read *Last reset reason*: "BROWNOUT" means a weak power supply; "TASK WATCHDOG" or "PANIC" is a firmware fault worth reporting with the log. |
+| Board restarts by itself | Read *Last reset reason*: "BROWNOUT" means a weak power supply; "TASK WATCHDOG" or "PANIC" is a firmware fault. *Last crash* then holds the details to report. |
 | Forgot everything | Factory reset (section 9). |
 
 ## 11. Reference

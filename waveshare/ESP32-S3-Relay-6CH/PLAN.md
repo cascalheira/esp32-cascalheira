@@ -238,6 +238,7 @@ esp32-cascalheira/
 | 4 ✅ 2026-09-05 device sync implemented in the user's HACS integration ha-garden-irrigation (plan.py + device_sync.py, v0.21.0); verified with mocked HA and against the real board; awaiting deployment in the user's HA. Blueprint kept as fallback. | HA side | Blueprint: on any `schedule.*` helper change or device reconnect, call `schedule.get_schedule` and the device action `esphome.<device>_set_schedule` with the JSON; per-channel schedule helpers drive the switches while online. |
 | 5 ✅ 2026-09-05: OTA via HTTP pull + rollback, task watchdog, RSSI/uptime/heap diagnostics, buzzer feedback (fw 0.6.1) | Ops | OTA via `EspOta` from an HTTP URL sent on `cmd`, rollback enabled, task watchdog, RSSI/uptime diagnostics, buzzer feedback, LED status pages. |
 | 6 | Add-on, Option B | Rust add-on publishing schedules and reconciling state; multi-device. |
+| 12 ✅ 2026-09-05 fw 0.13.0: crash report (core dump to a 64 KB partition + Rust panic hook; "Last crash" sensor, clear button, debug_crash service) | Follow-ups |
 | 11 ✅ 2026-09-05 fw 0.12.1: HA update entity + GitHub releases (release.sh, release/latest.json), verified via Install in HA | Follow-ups |
 | 10 ✅ 2026-09-05 fw 0.11.0: run-time totals (lifetime total_increasing sensor per relay), counters persisted in NVS (on relay off, cap, day roll, every 5 min while on), calendar-date day key | Follow-ups |
 | 9 ✅ 2026-09-05 fw 0.10.0: per-relay daily on-time cap (number, on-today sensor, limit-reached indicator; blocked until local midnight; counter resets on reboot) | Follow-ups |

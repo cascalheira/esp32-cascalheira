@@ -2,6 +2,7 @@
 
 mod buzzer;
 mod clock;
+mod crash;
 mod entities;
 mod logger;
 mod ota;
@@ -114,6 +115,11 @@ fn main() -> Result<()> {
     let sysloop = EspSystemEventLoop::take()?;
     let nvs_part = EspDefaultNvsPartition::take()?;
     let store = Store::open(nvs_part.clone())?;
+    crash::install(esp_idf_svc::nvs::EspNvs::new(nvs_part.clone(), "crash", true)?);
+    let crash_report = crash::collect(&format!("{} on {}", reset_reason, FW_VERSION));
+    if let Some(r) = &crash_report {
+        log::error!("previous boot crashed: {r}");
+    }
 
     // Relays first, all off, before anything else can take time.
     let mut relays: Vec<Relay> = vec![
@@ -550,6 +556,10 @@ fn main() -> Result<()> {
                 }
                 Command::Select { .. } => {}
                 Command::Button { key } if key == keys.all_off => actions.extend(ctl.all_off(now_ms)),
+                Command::Button { key } if key == keys.clear_crash => {
+                    crash::clear();
+                    server.set_state(keys.last_crash, State::Text("none".into()));
+                }
                 Command::Button { key } if key == keys.restart => {
                     log::warn!("restart requested from HA");
                     thread::sleep(Duration::from_millis(200));
@@ -591,6 +601,11 @@ fn main() -> Result<()> {
                         ota_running = true;
                         spawn_ota(url, tx.clone());
                     }
+                }
+                Command::Service { key, .. } if key == keys.debug_crash => {
+                    log::warn!("debug_crash requested: panicking on purpose");
+                    thread::sleep(Duration::from_millis(300));
+                    panic!("debug_crash requested from Home Assistant");
                 }
                 Command::Service { .. } => {}
                 Command::Update { key, command } if key == keys.update => match command {
@@ -731,6 +746,7 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
     server.set_state(keys.local_time, State::Text(clock.local_string()));
     server.set_state(keys.uptime, State::Float(0.0));
     server.set_state(keys.reset_reason, State::Text(reset_reason()));
+    server.set_state(keys.last_crash, State::Text(crash::last_report()));
     // Number shows remaining hours (rounded up) so the UI reflects a hold restored from flash.
     let hours = ctl.rain_hold_until().zip(clock.epoch()).map(|(u, n)| if u > n { ((u - n) + 3599) / 3600 } else { 0 }).unwrap_or(0) as u32;
     publish_rain_hold(server, keys, ctl, clock, Some(hours));
