@@ -3,6 +3,7 @@
 mod buzzer;
 mod clock;
 mod entities;
+mod logger;
 mod ota;
 mod portal;
 mod settings;
@@ -83,7 +84,7 @@ const LED_PORTAL: RGB8 = RGB8 { r: 0, g: 0, b: 28 };
 
 fn main() -> Result<()> {
     esp_idf_svc::sys::link_patches();
-    esp_idf_svc::log::EspLogger::initialize_default();
+    logger::install();
     log::info!("relay-fw {FW_VERSION} starting, slot {}", ota::running_slot());
 
     let p = Peripherals::take()?;
@@ -209,6 +210,7 @@ fn main() -> Result<()> {
     // API server and entities.
     let (registry, keys) = entities::build();
     let server = Server::new(device, registry, &format!("relay-fw {FW_VERSION}"));
+    logger::attach(server.clone());
     publish_all(&server, &keys, &ctl, &clock, None);
     spawn_ticker(tx.clone(), PinDriver::input(AnyIOPin::from(p.pins.gpio0), Pull::Up)?);
     spawn_api_listener(server.clone(), psk, tx.clone())?;

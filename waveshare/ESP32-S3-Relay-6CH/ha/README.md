@@ -32,3 +32,11 @@ for people who schedule with plain HA Schedule helpers instead.
 While the device is online the automation switches the relays from the helpers. Every edit of a
 helper, every HA start, every device reconnect and every 6 hours it also pushes the full weekly
 plan to the device, which stores it in flash and follows it on its own when HA is unreachable.
+
+## 3. Device logs in Home Assistant
+
+The board forwards its log to clients that subscribe (firmware 0.7.0+). In HA: Settings →
+Devices & services → ESPHome → the device entry → **Configure** → enable **Subscribe to logs from
+the device**. The lines then appear in HA's own log (Settings → System → Logs, search for the
+device name); set the logger level for `homeassistant.components.esphome` to `debug` to see
+below warnings. The USB console keeps working as before.

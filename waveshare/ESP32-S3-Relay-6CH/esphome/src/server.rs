@@ -33,6 +33,8 @@ impl Shared {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outbound {
     State(u32, State),
+    /// A log line (proto `LogLevel`, formatted bytes) for clients that subscribed to logs.
+    Log(i32, Arc<Vec<u8>>),
     Close,
 }
 
@@ -85,6 +87,20 @@ impl Server {
 
     pub fn state(&self, key: u32) -> Option<State> {
         self.shared.state(key)
+    }
+
+    /// Fan a log line out to every connection; each session filters by its subscribed level.
+    /// Cheap when nothing is connected. Never call from inside a connection's send path.
+    pub fn log(&self, level: i32, line: Vec<u8>) {
+        let mut conns = match self.conns.try_lock() {
+            Ok(c) => c,
+            Err(_) => return, // never block a logger
+        };
+        if conns.is_empty() {
+            return;
+        }
+        let line = Arc::new(line);
+        conns.retain(|tx| tx.send(Outbound::Log(level, line.clone())).is_ok());
     }
 
     /// Register a connection's outbound channel. Dropped receivers are pruned lazily.

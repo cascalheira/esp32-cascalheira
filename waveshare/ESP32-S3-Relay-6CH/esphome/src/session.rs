@@ -36,6 +36,8 @@ pub enum Event {
     Hello(String),
     /// Client subscribed to state updates.
     Subscribed,
+    /// Client subscribed to log lines up to this proto `LogLevel`.
+    LogsSubscribed(i32),
     Command(Command),
     /// Close the connection after flushing.
     Disconnect,
@@ -56,12 +58,14 @@ pub struct Session {
     buf: Vec<u8>,
     phase: Phase,
     subscribed: bool,
+    /// Requested `LogLevel` (proto numeric) if the client subscribed to logs.
+    log_level: Option<i32>,
     client_info: String,
 }
 
 impl Session {
     pub fn new(shared: Arc<Shared>, codec: Codec) -> Session {
-        Session { shared, codec, buf: Vec::with_capacity(1024), phase: Phase::AwaitHello, subscribed: false, client_info: String::new() }
+        Session { shared, codec, buf: Vec::with_capacity(1024), phase: Phase::AwaitHello, subscribed: false, log_level: None, client_info: String::new() }
     }
 
     pub fn subscribed(&self) -> bool {
@@ -112,6 +116,22 @@ impl Session {
             Some(m) => Ok(Some(self.codec.encode(&m)?)),
             None => Ok(None),
         }
+    }
+
+    /// Wire bytes for a log line, if the client subscribed to logs at this level or finer.
+    /// `level` uses the proto `LogLevel` numbering (1 = error ... 7 = very verbose).
+    pub fn log_message(&mut self, level: i32, message: &[u8]) -> Result<Option<Vec<u8>>> {
+        match self.log_level {
+            Some(max) if level <= max => {
+                let msg = proto::SubscribeLogsResponse { level, message: message.to_vec() };
+                Ok(Some(self.codec.encode(&RawMessage::encode(&msg))?))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub fn log_level(&self) -> Option<i32> {
+        self.log_level
     }
 
     /// Wire bytes for a keepalive ping.
@@ -225,14 +245,56 @@ impl Session {
                     .unwrap_or(0);
                 self.send(&proto::GetTimeResponse { epoch_seconds: now, ..Default::default() }, events)?;
             }
+            proto::SubscribeLogsRequest::ID => {
+                let req: proto::SubscribeLogsRequest = msg.decode()?;
+                self.log_level = Some(req.level);
+                events.push(Event::LogsSubscribed(req.level));
+            }
             // Subscriptions we do not serve: HA tolerates silence on these.
-            proto::SubscribeLogsRequest::ID
-            | proto::SubscribeHomeassistantServicesRequest::ID
-            | proto::SubscribeHomeAssistantStatesRequest::ID => {
+            proto::SubscribeHomeassistantServicesRequest::ID | proto::SubscribeHomeAssistantStatesRequest::ID => {
                 log::debug!("ignoring {}", message_name(msg.id));
             }
             other => log::debug!("unhandled message {} ({})", message_name(other), other),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::Device;
+    use crate::entity::Registry;
+    use crate::frame::encode_plaintext;
+    use crate::server::Server;
+
+    fn session() -> Session {
+        let device = Device {
+            name: "t".into(), friendly_name: "t".into(), mac_address: "00:00:00:00:00:01".into(), model: "m".into(),
+            manufacturer: "x".into(), esphome_version: "1.0.0".into(), compilation_time: "".into(), project_name: "a.b".into(),
+            project_version: "0".into(), suggested_area: "".into(), encryption: false,
+        };
+        let server = Server::new(device, Registry::new(), "test");
+        let mut s = Session::new(server.shared(), Codec::Plaintext);
+        let hello = RawMessage::encode(&proto::HelloRequest { client_info: "c".into(), api_version_major: 1, api_version_minor: 16 });
+        s.on_bytes(&encode_plaintext(&hello));
+        s
+    }
+
+    #[test]
+    fn logs_only_after_subscription_and_within_level() {
+        let mut s = session();
+        assert!(s.log_message(3, b"info").unwrap().is_none(), "not subscribed yet");
+        let req = RawMessage::encode(&proto::SubscribeLogsRequest { level: proto::LogLevel::Info as i32, dump_config: false });
+        let events = s.on_bytes(&encode_plaintext(&req));
+        assert!(matches!(events.as_slice(), [Event::LogsSubscribed(3)]));
+        assert!(s.log_message(3, b"info").unwrap().is_some());
+        assert!(s.log_message(1, b"error").unwrap().is_some());
+        assert!(s.log_message(5, b"debug").unwrap().is_none(), "finer than subscribed");
+        let bytes = s.log_message(2, b"warn").unwrap().unwrap();
+        let raw = crate::frame::read_plaintext(&mut std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(raw.id, proto::SubscribeLogsResponse::ID);
+        let msg: proto::SubscribeLogsResponse = raw.decode().unwrap();
+        assert_eq!(msg.message, b"warn");
     }
 }

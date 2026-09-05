@@ -55,6 +55,11 @@ pub fn serve<T: From<Command>>(mut stream: TcpStream, server: &Server, codec: Co
                         stream.write_all(&bytes)?;
                     }
                 }
+                Ok(Outbound::Log(level, line)) => {
+                    if let Some(bytes) = session.log_message(level, &line)? {
+                        stream.write_all(&bytes)?;
+                    }
+                }
                 Ok(Outbound::Close) => return Ok(()),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return Ok(()),
@@ -81,6 +86,7 @@ fn dispatch<T: From<Command>>(stream: &mut TcpStream, events: Vec<Event>, cmd_tx
         match ev {
             Event::Send(bytes) => stream.write_all(&bytes)?,
             Event::Hello(info) => log::info!("client connected: {}", info),
+            Event::LogsSubscribed(level) => log::debug!("client subscribed to logs at level {level}"),
             Event::Subscribed => {
                 let _ = cmd_tx.send(Command::ClientSubscribed { client_info: client_info.to_string() }.into());
             }
