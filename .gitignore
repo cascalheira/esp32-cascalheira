@@ -1,0 +1,6 @@
+target/
+.embuild/
+**/sdkconfig
+**/sdkconfig.old
+**/secrets.env
+.DS_Store

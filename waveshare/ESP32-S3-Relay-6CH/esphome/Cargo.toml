@@ -1,0 +1,18 @@
+[package]
+name = "esphome-api"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "ESPHome native API server (device side), transport-agnostic"
+
+[dependencies]
+prost = "0.14"
+bytes = "1"
+noise-protocol = "0.2"
+noise-rust-crypto = "0.6"
+base64 = "0.22"
+log = "0.4"
+thiserror = "2"
+
+[dev-dependencies]
+env_logger = "0.11"

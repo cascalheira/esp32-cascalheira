@@ -1,0 +1,6 @@
+target/
+.embuild/
+firmware/sdkconfig
+firmware/sdkconfig.old
+.DS_Store
+firmware/secrets.env

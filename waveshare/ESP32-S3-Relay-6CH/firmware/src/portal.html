@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay board setup</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;margin:0;background:#f4f5f7;color:#222}
+main{max-width:460px;margin:0 auto;padding:20px}
+h1{font-size:1.3rem;margin:.4rem 0 1rem}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+label{display:block;font-size:.85rem;color:#555;margin:.8rem 0 .25rem}
+input,select,button{width:100%;box-sizing:border-box;font-size:1rem;padding:10px;border:1px solid #ccc;border-radius:8px;background:#fff}
+button{background:#1a73e8;color:#fff;border:0;font-weight:600;margin-top:1rem;cursor:pointer}
+button.secondary{background:#e8eaed;color:#222;margin-top:.5rem}
+.row{display:flex;gap:8px;align-items:center}.row input{flex:1}
+.status{font-size:.9rem;line-height:1.5}.ok{color:#188038}.bad{color:#c5221f}
+small{color:#777}
+</style></head><body><main>
+<h1>Relay board setup</h1>
+<div class="card status" id="status">Loading…</div>
+<div class="card" id="keycard" style="display:none"><b>Home Assistant API key</b><br>
+<small>Paste this when Home Assistant asks for the encryption key. Shown only while the setup network is active.</small>
+<div class="row" style="margin-top:.5rem"><input id="shownkey" readonly style="font-family:monospace;font-size:.85rem">
+<button type="button" class="secondary" style="width:auto;margin:0" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('shownkey').value);this.textContent='Copied'">Copy</button></div></div>
+<div class="card">
+<form id="f" onsubmit="return save(event)">
+<label>WiFi network</label>
+<div class="row"><select id="ssidsel" onchange="ssid.value=this.value"></select>
+<button type="button" class="secondary" style="width:auto;margin:0" onclick="scan()">Rescan</button></div>
+<input id="ssid" name="ssid" placeholder="or type a hidden SSID" required>
+<label>WiFi password</label><input id="password" name="password" type="password" autocomplete="off">
+<label>Device name <small>(hostname, letters/digits/dashes)</small></label><input id="name" name="name" placeholder="relay6">
+<label>Friendly name</label><input id="friendly_name" name="friendly_name" placeholder="Garden relays">
+<label>Home Assistant API key <small>(leave empty to keep)</small></label>
+<div class="row"><input id="api_key" name="api_key" autocomplete="off">
+<button type="button" class="secondary" style="width:auto;margin:0" onclick="genkey()">Generate</button></div>
+<div id="curkeywrap"><label>Current API key <small>(required to change settings)</small></label><input id="current_key" name="current_key" autocomplete="off"></div>
+<button type="submit">Save and connect</button>
+<div id="result" class="status"></div>
+</form></div>
+<div class="card"><small>After saving, the device joins the new network. If the API key or name changed it restarts. Add it in Home Assistant under Settings → Devices → ESPHome with the API key.<br><br>
+<b>Buttons:</b> hold BOOT 5 s to open or close this setup network (blue LED). Hold BOOT 15 s for a <b>factory reset</b> (LED flashes red): WiFi, API key, names, schedule and settings are erased, a new key is generated and the setup network opens.</small></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+async function status(){try{const s=await(await fetch('/api/status')).json();
+$('status').innerHTML=`<b>${s.name}</b> · firmware ${s.version}<br>`+
+(s.sta_connected?`<span class=ok>Connected to ${s.sta_ssid} (${s.sta_ip})</span>`:`<span class=bad>Not connected${s.sta_ssid?' to '+s.sta_ssid:''}</span>`)+
+(s.last_error?`<br><span class=bad>${s.last_error}</span>`:'')+(s.ap_active?'<br>Setup network active':'');
+$('curkeywrap').style.display=(s.has_key&&!s.via_ap)?'block':'none';
+if(s.api_key){$('keycard').style.display='block';$('shownkey').value=s.api_key;}else{$('keycard').style.display='none';}if(!$('name').value)$('name').placeholder=s.name.replace(/-[0-9a-f]{6}$/,'');}catch(e){}}
+async function scan(){try{const l=await(await fetch('/api/scan')).json();const sel=$('ssidsel');const cur=$('ssid').value;sel.innerHTML='<option value="">— choose a network —</option>'+
+l.map(a=>`<option value="${a.ssid.replace(/"/g,'&quot;')}">${a.ssid} (${a.rssi} dBm${a.secure?'':', open'})</option>`).join('');if(cur)sel.value=cur;
+if(!l.length)setTimeout(scan,3000);}catch(e){}}
+function genkey(){const b=new Uint8Array(32);crypto.getRandomValues(b);$('api_key').value=btoa(String.fromCharCode(...b));}
+async function save(ev){ev.preventDefault();const d={};new FormData($('f')).forEach((v,k)=>d[k]=v);$('result').textContent='Saving…';
+const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});const j=await r.json().catch(()=>({}));
+if(!j.ok){$('result').innerHTML=`<span class=bad>${j.error||'error'}</span>`;return false;}
+$('result').innerHTML='<span class=ok>Saved. Connecting…</span>';let n=0;const t=setInterval(async()=>{await status();n++;if(n>40)clearInterval(t);},1500);return false;}
+status();scan();setInterval(status,5000);
+</script></body></html>

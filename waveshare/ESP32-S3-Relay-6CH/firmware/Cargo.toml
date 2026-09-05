@@ -1,0 +1,42 @@
+[package]
+name = "relay-fw"
+version = "0.5.3"
+edition = "2021"
+resolver = "2"
+rust-version = "1.82"
+
+[[bin]]
+name = "relay-fw"
+harness = false
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+esp-idf-svc = { version = "0.52.1", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
+embassy-time = { version = "0.5", features = ["generic-queue-8"] }
+relay-core = { path = "../core" }
+esphome-api = { path = "../esphome" }
+serde = { version = "1", features = ["derive"] }
+embedded-svc = "0.29"
+serde_json = "1"
+
+[build-dependencies]
+embuild = "0.33"
+
+[dependencies.ws2812-esp32-rmt-driver]
+version = "0.14"
+features = ["smart-leds-trait"]
+
+[dependencies.smart-leds]
+version = "0.4"
+
+# ESP-IDF mDNS component (needed by esp_idf_svc::mdns).
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/mdns", version = "1.8" }

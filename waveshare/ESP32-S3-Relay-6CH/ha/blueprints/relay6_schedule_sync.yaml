@@ -1,0 +1,204 @@
+blueprint:
+  name: Relay6 - schedule sync and drive
+  description: >-
+    Mirrors up to six Home Assistant schedule helpers to a relay6 device (Rust ESPHome-API
+    firmware) so it can keep running them while Home Assistant is unreachable, and drives the
+    relay switches from those same helpers while online. Create one automation from this
+    blueprint per device.
+  domain: automation
+  input:
+    device_action:
+      name: Device set_schedule action
+      description: The action exposed by the device, e.g. esphome.relay6_47abb0_set_schedule
+      default: esphome.relay6_47abb0_set_schedule
+      selector:
+        text:
+    timezone:
+      name: POSIX timezone string
+      description: Applied on the device so DST is handled locally. Portugal mainland default.
+      default: WET0WEST,M3.5.0/1,M10.5.0
+      selector:
+        text:
+    schedule_1:
+      name: Schedule for relay 1
+      default: ""
+      selector:
+        entity:
+          domain: schedule
+    switch_1:
+      name: Relay 1 switch
+      default: ""
+      selector:
+        entity:
+          domain: switch
+    schedule_2:
+      name: Schedule for relay 2
+      default: ""
+      selector:
+        entity:
+          domain: schedule
+    switch_2:
+      name: Relay 2 switch
+      default: ""
+      selector:
+        entity:
+          domain: switch
+    schedule_3:
+      name: Schedule for relay 3
+      default: ""
+      selector:
+        entity:
+          domain: schedule
+    switch_3:
+      name: Relay 3 switch
+      default: ""
+      selector:
+        entity:
+          domain: switch
+    schedule_4:
+      name: Schedule for relay 4
+      default: ""
+      selector:
+        entity:
+          domain: schedule
+    switch_4:
+      name: Relay 4 switch
+      default: ""
+      selector:
+        entity:
+          domain: switch
+    schedule_5:
+      name: Schedule for relay 5
+      default: ""
+      selector:
+        entity:
+          domain: schedule
+    switch_5:
+      name: Relay 5 switch
+      default: ""
+      selector:
+        entity:
+          domain: switch
+    schedule_6:
+      name: Schedule for relay 6
+      default: ""
+      selector:
+        entity:
+          domain: schedule
+    switch_6:
+      name: Relay 6 switch
+      default: ""
+      selector:
+        entity:
+          domain: switch
+    link_sensor:
+      name: Device "Link" text sensor
+      description: Used to re-push the schedule when the device reconnects.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  device_action: !input device_action
+  timezone: !input timezone
+  schedules:
+    - !input schedule_1
+    - !input schedule_2
+    - !input schedule_3
+    - !input schedule_4
+    - !input schedule_5
+    - !input schedule_6
+  switches:
+    - !input switch_1
+    - !input switch_2
+    - !input switch_3
+    - !input switch_4
+    - !input switch_5
+    - !input switch_6
+  active_schedules: "{{ schedules | reject('eq', '') | list }}"
+
+trigger:
+  # Any edit of a schedule helper changes its next_event attribute; any block edge changes state.
+  - platform: state
+    entity_id: !input schedule_1
+    id: sched
+  - platform: state
+    entity_id: !input schedule_2
+    id: sched
+  - platform: state
+    entity_id: !input schedule_3
+    id: sched
+  - platform: state
+    entity_id: !input schedule_4
+    id: sched
+  - platform: state
+    entity_id: !input schedule_5
+    id: sched
+  - platform: state
+    entity_id: !input schedule_6
+    id: sched
+  - platform: homeassistant
+    event: start
+    id: sync
+  - platform: state
+    entity_id: !input link_sensor
+    to: online
+    id: sync
+  - platform: time_pattern
+    hours: "/6"
+    id: sync
+
+action:
+  # 1. Drive the relays from the helpers' on/off state while HA is in charge.
+  - repeat:
+      for_each: "{{ range(6) | list }}"
+      sequence:
+        - variables:
+            sched: "{{ schedules[repeat.item] }}"
+            sw: "{{ switches[repeat.item] }}"
+        - if:
+            - "{{ sched != '' and sw != '' and states(sched) in ['on', 'off'] }}"
+          then:
+            - service: "switch.turn_{{ states(sched) }}"
+              target:
+                entity_id: "{{ sw }}"
+  # 2. Push the full weekly schedule to the device.
+  - if:
+      - "{{ active_schedules | count > 0 }}"
+    then:
+      - service: schedule.get_schedule
+        target:
+          entity_id: "{{ active_schedules }}"
+        response_variable: sched_data
+      - variables:
+          payload: >-
+            {% set ns = namespace(channels={}) %}
+            {% set days = [('monday','M------'),('tuesday','-T-----'),('wednesday','--W----'),
+                           ('thursday','---T---'),('friday','----F--'),('saturday','-----S-'),
+                           ('sunday','------S')] %}
+            {% for i in range(6) %}
+              {% set ent = schedules[i] %}
+              {% if ent != '' and ent in sched_data %}
+                {% set blocks = namespace(list=[]) %}
+                {% for day, mask in days %}
+                  {% for b in sched_data[ent][day] | default([]) %}
+                    {% set f = (b['from'][0:2] | int) * 60 + (b['from'][3:5] | int) %}
+                    {% set t = (b['to'][0:2] | int) * 60 + (b['to'][3:5] | int) %}
+                    {% if t > f %}
+                      {% set blocks.list = blocks.list + [{'days': mask, 'from': f, 'to': t}] %}
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+                {% set ns.channels = dict(ns.channels, **{(i + 1) | string: blocks.list}) %}
+              {% endif %}
+            {% endfor %}
+            {{ {'rev': (as_timestamp(now()) | int) % 4294967295,
+                'tz': timezone,
+                'channels': ns.channels} | to_json }}
+      - service: "{{ device_action }}"
+        data:
+          json: "{{ payload }}"

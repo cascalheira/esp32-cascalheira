@@ -1,0 +1,11 @@
+[package]
+name = "esphome-api-gen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Regenerates ../src/proto/{api,ids}.rs from ../proto/api.proto"
+
+[dependencies]
+prost-build = "0.14"
+protoc-bin-vendored = "3"
+heck = "0.5"
