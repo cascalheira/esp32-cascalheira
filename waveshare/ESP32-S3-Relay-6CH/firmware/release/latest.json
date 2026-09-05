@@ -1,6 +1,6 @@
 {
-  "version": "0.12.1",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.12.1/relay-fw-0.12.1.bin",
-  "summary": "First release published through the update entity. Adds in-HA firmware updates, usage totals, daily caps and rain hold.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.12.1"
+  "version": "0.13.0",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.13.0/relay-fw-0.13.0.bin",
+  "summary": "Crash report: a Last crash sensor with the reason, task, address and panic message of the previous crash, plus a clear button. Requires the new coredump partition (flash once over USB with the updated partitions.csv); boards without it still run but cannot record dumps.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.13.0"
 }
