@@ -22,10 +22,7 @@ pub fn read<R: Read>(r: &mut R) -> Result<u32> {
     let mut shift = 0;
     loop {
         let mut b = [0u8; 1];
-        match r.read(&mut b)? {
-            0 => return Err(Error::Closed),
-            _ => {}
-        }
+        if r.read(&mut b)? == 0 { return Err(Error::Closed) }
         result |= ((b[0] & 0x7f) as u32) << shift;
         if b[0] & 0x80 == 0 {
             return Ok(result);

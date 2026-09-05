@@ -19,7 +19,7 @@ small{color:#777}
 .track{position:relative;height:14px;background:#eceff1;border-radius:3px;overflow:hidden}
 .track span{position:absolute;top:0;bottom:0;background:#1a73e8;border-radius:2px}
 .track.today{outline:1px solid #f9ab00}
-.track i{position:absolute;top:0;bottom:0;width:1px;background:#c5221f}
+.track .now{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#c5221f}
 </style></head><body><main>
 <h1>Relay board setup</h1>
 <div class="card status" id="status">Loading…</div>
@@ -30,7 +30,11 @@ small{color:#777}
 <div class="card" id="schedcard">
 <b>Stored schedule</b> <small id="schedmeta"></small>
 <div id="schedgrid" class="grid"></div>
-<small id="schednote"></small>
+<div id="schednote" class="status" style="margin-top:.5rem"></div>
+<div class="row" style="margin-top:.6rem"><label style="margin:0;flex:1">Rain hold (hours, 0 = off)</label>
+<input id="holdhours" type="number" min="0" max="72" value="0" style="width:80px">
+<button type="button" class="secondary" style="width:auto;margin:0" onclick="setHold()">Apply</button></div>
+<div id="holdresult" class="status"></div>
 </div>
 <div class="card">
 <form id="f" onsubmit="return save(event)">
@@ -69,18 +73,31 @@ if(!j.ok){$('result').innerHTML=`<span class=bad>${j.error||'error'}</span>`;ret
 $('result').innerHTML='<span class=ok>Saved. Connecting…</span>';let n=0;const t=setInterval(async()=>{await status();n++;if(n>40)clearInterval(t);},1500);return false;}
 const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const hm=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-async function schedule(){try{const s=await(await fetch('/api/schedule')).json();
-$('schedmeta').textContent=s.blocks?`rev ${s.rev} · ${s.blocks} block${s.blocks>1?'s':''}${s.tz?' · '+s.tz:''}`:'none stored';
-const g=$('schedgrid');g.innerHTML='<div></div>'+DAYS.map(d=>`<div class=hd>${d}</div>`).join('');
-for(let ch=1;ch<=6;ch++){const blocks=(s.channels&&s.channels[String(ch)])||[];
-g.innerHTML+=`<div class="lbl${s.relays&&s.relays[ch-1]?' on':''}" title="on today: ${s.on_today_min?s.on_today_min[ch-1]:0} min">Relay ${ch}</div>`;
+const pl=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
+const DRIVER={home_assistant:'Home Assistant controls the relays; the grid is the fallback plan.',
+ schedule:'Home Assistant is not connected: the board follows this grid.',
+ schedule_held:'Home Assistant is not connected and a rain hold is active: nothing waters until it ends.',
+ safe_state_no_clock:'No Home Assistant and no clock yet: relays hold their "clock unknown" state; the grid waits for the time.',
+ manual_no_ha:'Mode is Manual and Home Assistant is not connected: nothing switches the relays.',
+ off:'Mode is Off: all relays off, commands ignored.'};
+let lastSched='';
+async function schedule(){try{const r=await fetch('/api/schedule');if(!r.ok)return;const txt=await r.text();if(txt===lastSched)return;lastSched=txt;const s=JSON.parse(txt);
+if(!s.mode)return;
+$('schedmeta').textContent=s.blocks?`rev ${s.rev} · ${pl(s.blocks,'block')}${s.tz?' · '+s.tz:''}`:'none stored';
+const n=(s.relays||[]).length||6;let h='<div></div>'+DAYS.map(d=>`<div class=hd>${d}</div>`).join('');
+for(let ch=1;ch<=n;ch++){const blocks=(s.channels&&s.channels[String(ch)])||[];
+h+=`<div class="lbl${s.relays&&s.relays[ch-1]?' on':''}" title="on today: ${s.on_today_min?s.on_today_min[ch-1]:0} min">Relay ${ch}</div>`;
 for(let d=0;d<7;d++){let spans='';for(const b of blocks){if(b.days[d]==='-')continue;
 spans+=`<span style="left:${b.from/1440*100}%;width:${(b.to-b.from)/1440*100}%" title="Relay ${ch} ${DAYS[d]} ${hm(b.from)}–${hm(b.to)}"></span>`;}
-const today=s.weekday===d;const now=today&&s.minute!=null?`<i style="left:${s.minute/1440*100}%"></i>`:'';
-g.innerHTML+=`<div class="track${today?' today':''}">${spans}${now}</div>`;}}
-const parts=[`Mode: ${s.mode}`,`Link: ${s.link}${s.ha_clients?` (${s.ha_clients} HA client${s.ha_clients>1?'s':''})`:''}`,`Board time: ${s.local_time}`];
-if(s.rain_hold_until)parts.push(`<span class=bad>Rain hold until ${s.rain_hold_until}: schedule paused</span>`);
-parts.push(s.link==='online'?'Home Assistant controls the relays; the grid shows the fallback plan.':'Home Assistant is not connected: the board follows this grid.');
+const today=s.weekday===d;const now=today&&s.minute!=null?`<span class=now style="left:${Math.min(s.minute/1440*100,99.8)}%"></span>`:'';
+h+=`<div class="track${today?' today':''}">${spans}${now}</div>`;}}
+$('schedgrid').innerHTML=h;
+const parts=[`Mode: ${s.mode}`,`Link: ${s.link}${s.ha_clients?` (${pl(s.ha_clients,'HA client')})`:''}`,`Board time: ${s.local_time}`];
+if(s.rain_hold)parts.push(`<span class=bad>Rain hold: ${s.rain_hold}</span>`);
+parts.push(`<b>${DRIVER[s.driver]||s.driver}</b>`);
 $('schednote').innerHTML=parts.join(' · ');}catch(e){}}
-status();scan();schedule();setInterval(status,5000);setInterval(schedule,15000);
+async function setHold(){const hours=Number($('holdhours').value||0);const body={hours};const ck=$('current_key');if(ck&&ck.value)body.current_key=ck.value;
+const r=await fetch('/api/rain_hold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+$('holdresult').innerHTML=j.ok?'<span class=ok>Applied.</span>':`<span class=bad>${j.error||'error'} (enter the current API key below)</span>`;lastSched='';setTimeout(schedule,800);}
+status();scan();schedule();setInterval(status,5000);setTimeout(()=>setInterval(schedule,15000),7000);
 </script></body></html>

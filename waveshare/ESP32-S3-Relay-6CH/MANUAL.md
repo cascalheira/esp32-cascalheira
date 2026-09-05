@@ -119,14 +119,16 @@ cycles, notifications and so on. The board only listens.
 
 The board's own web page (http://\<board IP\>/, or http://192.168.4.1/ on the setup network) shows the
 stored plan as a weekly grid per relay, with today outlined, a red marker at the current time, relays
-that are on in green, and whether Home Assistant or the grid is in charge right now. Useful when
+that are on in green, and a sentence stating what is deciding the relays right now (Home
+Assistant, the grid, a rain hold, the "clock unknown" state, Manual or Off). Useful when
 Home Assistant is down and you want to know what will happen.
 
-If it is raining and Home Assistant is down, set **Rain hold** (hours) on the device page to pause
-the stored schedule; the web page shows the hold too.
+If it is raining and Home Assistant is down, set a **Rain hold** (hours) on the board's web page
+(or, when Home Assistant is up, on the device page) to pause the stored schedule. Over the home
+network the page asks for the API key to accept it; on the setup network it does not.
 
 If Home Assistant becomes unreachable (server down, router down, network cable out), the board
-notices within about two minutes, switches to its stored plan and turns relays on and off at the
+notices within about three minutes (immediately if the connection is closed cleanly), switches to its stored plan and turns relays on and off at the
 scheduled times by itself. Skips that depend on weather data are not applied offline. When Home
 Assistant returns, it takes over again without disturbing relays that are on.
 
@@ -193,5 +195,5 @@ key on the page. The key is only ever shown there.
 | Setup page on the home network | http://\<board IP\>/ (changes need the current API key) |
 | Home Assistant port | 6053 (ESPHome native API, encrypted) |
 | Device name | `relay6-xxxxxx` (hostname `relay6-xxxxxx.local`) |
-| Offline switch-over delay | about 2 minutes after Home Assistant disconnects |
+| Offline switch-over delay | immediate on a clean disconnect; up to about 3 minutes if the link just goes silent |
 | Setup network auto-close | 15 minutes after the board is online |

@@ -64,8 +64,15 @@ pub struct PortalContext {
     pub current: std::sync::Mutex<NetSettings>,
     pub tx: Sender<Msg>,
     pub ap_active: Arc<AtomicBool>,
-    /// Pre-serialised JSON of the stored schedule and live state, refreshed by the main loop.
-    pub schedule_json: std::sync::Mutex<String>,
+    /// Pre-serialised JSON of the stored schedule and live state, replaced by the main loop
+    /// whenever it changes; handlers just clone the Arc.
+    pub schedule_json: std::sync::Mutex<Arc<str>>,
+}
+
+fn json_ok(req: embedded_svc::http::server::Request<&mut EspHttpConnection<'_>>, body: &str) -> anyhow::Result<()> {
+    req.into_response(200, Some("OK"), &[("Content-Type", "application/json"), ("Cache-Control", "no-store")])?
+        .write_all(body.as_bytes())?;
+    Ok(())
 }
 
 /// True when the request came in over the setup access point (client in 192.168.4.0/24).
@@ -128,7 +135,7 @@ pub fn start(ctx: Arc<PortalContext>) -> Result<EspHttpServer<'static>> {
 
     let c = ctx.clone();
     server.fn_handler::<anyhow::Error, _>("/api/status", Method::Get, move |mut req| {
-        let from_ap = via_ap(&**embedded_svc::http::server::Request::connection(&mut req));
+        let from_ap = via_ap(embedded_svc::http::server::Request::connection(&mut req));
         let body = {
             let w = c.wifi.lock().unwrap();
             let cur = c.current.lock().unwrap();
@@ -153,10 +160,42 @@ pub fn start(ctx: Arc<PortalContext>) -> Result<EspHttpServer<'static>> {
 
     let c = ctx.clone();
     server.fn_handler::<anyhow::Error, _>("/api/schedule", Method::Get, move |req| {
-        let body = c.schedule_json.lock().unwrap().clone();
-        req.into_response(200, Some("OK"), &[("Content-Type", "application/json"), ("Cache-Control", "no-store")])?
-            .write_all(body.as_bytes())?;
-        Ok(())
+        let body: Arc<str> = c.schedule_json.lock().unwrap().clone();
+        json_ok(req, &body)
+    })?;
+
+    // Rain hold from the board's own page (the offline case). Same access rule as saving.
+    let c = ctx.clone();
+    server.fn_handler::<anyhow::Error, _>("/api/rain_hold", Method::Post, move |mut req| {
+        let from_ap = via_ap(&**embedded_svc::http::server::Request::connection(&mut req));
+        let len = req.content_len().unwrap_or(0) as usize;
+        if len == 0 || len > 512 {
+            req.into_response(400, Some("Bad Request"), &[])?.write_all(b"bad body")?;
+            return Ok(());
+        }
+        let mut body = vec![0u8; len];
+        req.read_exact(&mut body).map_err(|e| anyhow!("read body: {e:?}"))?;
+        #[derive(Deserialize)]
+        struct HoldReq {
+            hours: u32,
+            #[serde(default)]
+            current_key: String,
+        }
+        let hold: HoldReq = match serde_json::from_slice(&body) {
+            Ok(h) => h,
+            Err(e) => {
+                req.into_response(400, Some("Bad Request"), &[])?.write_all(format!("invalid json: {e}").as_bytes())?;
+                return Ok(());
+            }
+        };
+        let cur_key = c.current.lock().unwrap().psk_b64.clone();
+        if !from_ap && !cur_key.is_empty() && hold.current_key.trim() != cur_key {
+            req.into_response(403, Some("Forbidden"), &[("Content-Type", "application/json")])?
+                .write_all(br#"{"ok":false,"error":"current API key does not match"}"#)?;
+            return Ok(());
+        }
+        let _ = c.tx.send(Msg::RainHold(hold.hours.min(72)));
+        json_ok(req, r#"{"ok":true}"#)
     })?;
 
     let c = ctx.clone();
@@ -170,7 +209,7 @@ pub fn start(ctx: Arc<PortalContext>) -> Result<EspHttpServer<'static>> {
 
     let c = ctx.clone();
     server.fn_handler::<anyhow::Error, _>("/api/save", Method::Post, move |mut req| {
-        let from_ap = via_ap(&**embedded_svc::http::server::Request::connection(&mut req));
+        let from_ap = via_ap(embedded_svc::http::server::Request::connection(&mut req));
         let len = req.content_len().unwrap_or(0) as usize;
         if len == 0 || len > 4096 {
             req.into_response(400, Some("Bad Request"), &[])?.write_all(b"body too large or empty")?;

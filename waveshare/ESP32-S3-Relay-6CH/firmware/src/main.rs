@@ -29,7 +29,7 @@ use esphome_api::codec::Codec;
 use esphome_api::noise::{parse_psk, NoiseCodec};
 use esphome_api::{runner, Command, Device, Server, State, UpdateState};
 use crate::updater::Latest;
-use relay_core::{Action, Controller, Link, Schedule, CHANNELS};
+use relay_core::{Action, Controller, Link, LocalTime, Schedule, CHANNELS};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_esp32_rmt_driver::Ws2812Esp32Rmt;
 
@@ -62,6 +62,8 @@ pub enum Msg {
     UpdateInfo(Result<Latest, String>),
     LongPress,
     FactoryReset,
+    /// Rain hold (hours, 0 clears) requested from the setup page.
+    RainHold(u32),
     PortalScan,
     Provision(NetSettings),
 }
@@ -87,7 +89,7 @@ impl Led {
         // The board's WS2812B-0807 takes R,G,B byte order while the driver emits the usual
         // G,R,B, so red and green arrive swapped unless we pre-swap them here.
         let wire = RGB8 { r: c.g, g: c.r, b: c.b };
-        let _ = self.0.write([wire].into_iter());
+        let _ = self.0.write([wire]);
     }
 }
 
@@ -218,7 +220,7 @@ fn main() -> Result<()> {
         current: Mutex::new(net.clone()),
         tx: tx.clone(),
         ap_active: Arc::new(AtomicBool::new(ap_active)),
-        schedule_json: Mutex::new("{}".into()),
+        schedule_json: Mutex::new(Arc::from("{}")),
     });
     let _http = portal::start(portal_ctx.clone())?;
     portal::spawn_captive_dns(portal_ctx.ap_active.clone())?;
@@ -389,6 +391,14 @@ fn main() -> Result<()> {
                     log::error!("factory reset: {e}");
                 }
                 unsafe { esp_idf_svc::sys::esp_restart() };
+            }
+            Msg::RainHold(hours) => {
+                actions.extend(ctl.set_rain_hold(hours, now_ms, local));
+                if let Err(e) = store.save_config(ctl.config()) {
+                    log::error!("save config: {e}");
+                }
+                log::info!("rain hold from setup page: {}", if hours > 0 { format!("{hours} h") } else { "cleared".into() });
+                publish_rain_hold(&server, &keys, &ctl, &clock, Some(hours));
             }
             Msg::PortalScan => {
                 if last_scan.elapsed() > Duration::from_secs(10) {
@@ -643,8 +653,14 @@ fn main() -> Result<()> {
             },
         }
 
-        if !actions.is_empty() || (msg_kind == MsgKind::Tick && tick_count % 30 == 0) || tick_count < 3 {
-            *portal_ctx.schedule_json.lock().unwrap() = schedule_snapshot(&ctl, &clock, ha_clients, wifi_up);
+        // Any non-tick message may have changed what the page shows; ticks matter every 30 s.
+        // Serialising is cheap; the swap happens only when the text differs.
+        if msg_kind != MsgKind::Tick || tick_count % 30 == 0 || !actions.is_empty() {
+            let fresh = schedule_snapshot(&ctl, &clock, clock.local_time(), ha_clients);
+            let mut slot = portal_ctx.schedule_json.lock().unwrap();
+            if slot.as_ref() != fresh.as_str() {
+                *slot = Arc::from(fresh.as_str());
+            }
         }
         let any_on = ctl.relays().iter().any(|r| *r);
         let periodic = matches!(msg_kind, MsgKind::Tick) && any_on && tick_count % 300 == 0;
@@ -666,55 +682,50 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// JSON for the setup page's schedule preview: stored plan plus what the board is doing now.
-fn schedule_snapshot(ctl: &Controller, clock: &Clock, ha_clients: usize, wifi_up: bool) -> String {
-    let s = ctl.schedule();
-    let channels: serde_json::Map<String, serde_json::Value> = s
-        .channels
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| !b.is_empty())
-        .map(|(i, blocks)| {
-            (
-                (i + 1).to_string(),
-                serde_json::Value::Array(
-                    blocks
-                        .iter()
-                        .map(|b| serde_json::json!({"days": b.days.to_string(), "from": b.from, "to": b.to}))
-                        .collect(),
-                ),
-            )
-        })
-        .collect();
-    let rain_hold = match ctl.rain_hold_until() {
-        None => serde_json::Value::Null,
-        Some(u) => serde_json::Value::String(clock.format_epoch(u)),
-    };
-    let local = clock.local_time();
-    serde_json::json!({
-        "rev": s.rev,
-        "blocks": s.block_count(),
-        "tz": s.tz,
-        "mode": ctl.config().mode.as_str(),
-        "link": ctl.link().as_str(),
-        "ha_clients": ha_clients,
-        "wifi": wifi_up,
-        "local_time": clock.local_string(),
-        "weekday": local.map(|t| t.weekday as u8),
-        "minute": local.map(|t| t.minute),
-        "rain_hold_until": rain_hold,
-        "relays": ctl.relays(),
-        "on_today_min": ctl.on_today_min(),
-        "max_on_min": ctl.config().channels.iter().map(|c| c.max_on_min).collect::<Vec<_>>(),
-        "max_daily_min": ctl.config().channels.iter().map(|c| c.max_daily_min).collect::<Vec<_>>(),
-        "channels": channels,
-    })
-    .to_string()
+/// JSON for the setup page's schedule preview: the stored plan (same serializer as HA/NVS)
+/// plus what the board is doing now.
+#[derive(serde::Serialize)]
+struct Snapshot<'a> {
+    #[serde(flatten)]
+    schedule: &'a Schedule,
+    blocks: usize,
+    mode: &'static str,
+    link: &'static str,
+    /// Who decides the relays right now (see `relay_core::Driver`).
+    driver: &'static str,
+    ha_clients: usize,
+    local_time: String,
+    weekday: Option<u8>,
+    minute: Option<u16>,
+    rain_hold: Option<String>,
+    relays: [bool; CHANNELS],
+    on_today_min: [u32; CHANNELS],
 }
 
-/// Publish the rain-hold number (hours, as set) and its human-readable end time.
-fn publish_rain_hold(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, hours: Option<u32>) {
-    let text = match ctl.rain_hold_until() {
+fn schedule_snapshot(ctl: &Controller, clock: &Clock, local: Option<LocalTime>, ha_clients: usize) -> String {
+    let snap = Snapshot {
+        schedule: ctl.schedule(),
+        blocks: ctl.schedule().block_count(),
+        mode: ctl.config().mode.as_str(),
+        link: ctl.link().as_str(),
+        driver: ctl.driver().as_str(),
+        ha_clients,
+        local_time: match local {
+            Some(t) => format!("{:?} {:02}:{:02}", t.weekday, t.minute / 60, t.minute % 60),
+            None => "unknown".into(),
+        },
+        weekday: local.map(|t| t.weekday as u8),
+        minute: local.map(|t| t.minute),
+        rain_hold: ctl.rain_hold_active().then(|| rain_hold_text(ctl, clock)),
+        relays: ctl.relays(),
+        on_today_min: ctl.on_today_min(),
+    };
+    serde_json::to_string(&snap).unwrap_or_else(|_| "{}".into())
+}
+
+/// Human-readable rain-hold status shared by the HA text sensor and the setup page.
+fn rain_hold_text(ctl: &Controller, clock: &Clock) -> String {
+    match ctl.rain_hold_until() {
         None => "off".to_string(),
         Some(until) => match clock.epoch() {
             Some(now) if until > now => {
@@ -724,8 +735,12 @@ fn publish_rain_hold(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clo
             Some(_) => "expiring".to_string(),
             None => "until the clock is known".to_string(),
         },
-    };
-    server.set_state(keys.rain_hold, State::Text(text));
+    }
+}
+
+/// Publish the rain-hold number (hours, as set) and its human-readable end time.
+fn publish_rain_hold(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, hours: Option<u32>) {
+    server.set_state(keys.rain_hold, State::Text(rain_hold_text(ctl, clock)));
     if let Some(h) = hours {
         server.set_state(keys.rain_hold_hours, State::Float(h as f32));
     }
@@ -798,7 +813,7 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
     server.set_state(keys.reset_reason, State::Text(reset_reason()));
     server.set_state(keys.last_crash, State::Text(crash::last_report()));
     // Number shows remaining hours (rounded up) so the UI reflects a hold restored from flash.
-    let hours = ctl.rain_hold_until().zip(clock.epoch()).map(|(u, n)| if u > n { ((u - n) + 3599) / 3600 } else { 0 }).unwrap_or(0) as u32;
+    let hours = ctl.rain_hold_until().zip(clock.epoch()).map(|(u, n)| if u > n { (u - n).div_ceil(3600) } else { 0 }).unwrap_or(0) as u32;
     publish_rain_hold(server, keys, ctl, clock, Some(hours));
     publish_heap(server, keys);
     publish_schedule(server, keys, ctl.schedule(), None);

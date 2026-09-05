@@ -31,6 +31,37 @@ impl Link {
     }
 }
 
+/// What is actually deciding the relay states right now. Derived from mode, link and rain hold
+/// with the same rules `refresh()` applies, so UIs never re-derive the policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Driver {
+    /// All relays forced off; every command ignored.
+    Off,
+    /// Home Assistant is connected and switches the relays.
+    HomeAssistant,
+    /// Home Assistant is gone and mode is Manual: nothing switches relays until it returns.
+    ManualNoHa,
+    /// Home Assistant is gone and the clock is unknown: relays held in their safe state.
+    SafeStateNoClock,
+    /// Home Assistant is gone and a rain hold pauses the stored schedule.
+    ScheduleHeld,
+    /// Home Assistant is gone: the stored schedule drives the relays.
+    Schedule,
+}
+
+impl Driver {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Driver::Off => "off",
+            Driver::HomeAssistant => "home_assistant",
+            Driver::ManualNoHa => "manual_no_ha",
+            Driver::SafeStateNoClock => "safe_state_no_clock",
+            Driver::ScheduleHeld => "schedule_held",
+            Driver::Schedule => "schedule",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// Drive relay `ch` (0-based) and publish its state.
@@ -124,6 +155,17 @@ impl Controller {
 
     pub fn time_known(&self) -> bool {
         self.time_known
+    }
+
+    pub fn driver(&self) -> Driver {
+        match (self.cfg.mode, self.link()) {
+            (Mode::Off, _) => Driver::Off,
+            (_, Link::Online) => Driver::HomeAssistant,
+            (Mode::Manual, _) => Driver::ManualNoHa,
+            (_, Link::OfflineUnknownTime) => Driver::SafeStateNoClock,
+            (Mode::Auto, Link::OfflineSchedule) if self.rain_hold_active() => Driver::ScheduleHeld,
+            (Mode::Auto, Link::OfflineSchedule) => Driver::Schedule,
+        }
     }
 
     /// Whole minutes each relay has been on so far today.
@@ -395,16 +437,17 @@ impl Controller {
             out.push(Action::LinkChanged(new_link));
         }
 
-        if self.cfg.mode == Mode::Off {
-            out.extend(self.poll_safeguard(now_ms));
-            return out;
-        }
-
         // A hold that just expired must re-evaluate every channel, not wait for the next edge.
+        // Checked before the Off early return so a hold also expires while the board is Off.
         if self.cfg.rain_hold_until > 0 && !self.rain_hold_active() {
             self.cfg.rain_hold_until = 0;
             self.sched_prev = [None; CHANNELS];
             out.push(Action::RainHoldEnded);
+        }
+
+        if self.cfg.mode == Mode::Off {
+            out.extend(self.poll_safeguard(now_ms));
+            return out;
         }
 
         // Report schedule wishes (edge-triggered) and apply them when offline in Auto mode.
@@ -752,6 +795,41 @@ mod tests {
         assert!(c.rain_hold_active());
         let acts = c.set_rain_hold(0, 5000, Some(t(20, 10)));
         assert_eq!(relays(&acts), vec![(1, true)], "schedule re-applied on clear");
+    }
+
+    #[test]
+    fn rain_hold_expires_even_in_off_mode() {
+        let mut c = Controller::new(Config::default(), sched());
+        c.set_epoch(Some(1_000_000));
+        c.on_time_known(0, t(12, 0));
+        c.set_rain_hold(1, 0, Some(t(12, 0)));
+        c.set_mode(Mode::Off, 1000, Some(t(12, 0)));
+        c.set_epoch(Some(1_000_000 + 3601));
+        let acts = c.tick(2000, Some(t(13, 1)));
+        assert!(acts.contains(&Action::RainHoldEnded));
+        assert_eq!(c.rain_hold_until(), None);
+    }
+
+    #[test]
+    fn driver_reflects_mode_link_and_hold() {
+        let mut c = Controller::new(Config::default(), sched());
+        assert_eq!(c.driver(), Driver::SafeStateNoClock, "no clock, no HA");
+        c.set_epoch(Some(1_000_000));
+        c.on_time_known(0, t(12, 0));
+        assert_eq!(c.driver(), Driver::Schedule);
+        c.set_rain_hold(2, 0, Some(t(12, 0)));
+        assert_eq!(c.driver(), Driver::ScheduleHeld);
+        c.set_rain_hold(0, 0, Some(t(12, 0)));
+        c.on_ha_connected(0);
+        assert_eq!(c.driver(), Driver::HomeAssistant);
+        c.set_mode(Mode::Manual, 0, Some(t(12, 0)));
+        assert_eq!(c.driver(), Driver::HomeAssistant, "manual with HA up: HA drives");
+        c.on_ha_disconnected(0, Some(t(12, 0)));
+        assert_eq!(c.driver(), Driver::ManualNoHa);
+        c.set_mode(Mode::Off, 0, Some(t(12, 0)));
+        assert_eq!(c.driver(), Driver::Off);
+        c.on_ha_connected(0);
+        assert_eq!(c.driver(), Driver::Off, "off wins even with HA connected");
     }
 
     #[test]
