@@ -1,6 +1,6 @@
 {
-  "version": "0.14.1",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.14.1/relay-fw-0.14.1.bin",
-  "summary": "Quality pass: the setup page now states exactly what is driving the relays (HA, schedule, rain hold, clock unknown, Manual, Off) and offers a rain-hold control; a rain hold now expires while the mode is Off; faster, always-fresh page snapshot.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.14.1"
+  "version": "0.14.2",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.14.2/relay-fw-0.14.2.bin",
+  "summary": "Fix: settings (Exclusive mode, safeguards, mode, buzzer) were reset to defaults on every boot since 0.10.0 because the stored config outgrew its read buffer.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.14.2"
 }
