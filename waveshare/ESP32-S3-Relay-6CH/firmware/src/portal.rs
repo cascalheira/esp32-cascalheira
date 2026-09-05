@@ -105,7 +105,17 @@ fn peer_ipv4(conn: &EspHttpConnection<'_>) -> Option<[u8; 4]> {
 }
 
 pub fn start(ctx: Arc<PortalContext>) -> Result<EspHttpServer<'static>> {
-    let conf = HttpConfig { max_uri_handlers: 16, stack_size: 12 * 1024, uri_match_wildcard: true, ..Default::default() };
+    // Few concurrent HTTP sessions, recycled when idle, so the portal can never starve the
+    // API server or an OTA download of sockets.
+    let conf = HttpConfig {
+        max_uri_handlers: 16,
+        stack_size: 12 * 1024,
+        uri_match_wildcard: true,
+        max_open_sockets: 3,
+        lru_purge_enable: true,
+        session_timeout: std::time::Duration::from_secs(20),
+        ..Default::default()
+    };
     let mut server = EspHttpServer::new(&conf)?;
 
     server.fn_handler::<anyhow::Error, _>("/", Method::Get, |req| {

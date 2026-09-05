@@ -16,3 +16,7 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+
+# Sockets: HTTP server (portal) + captive DNS + mDNS + SNTP + API listener + up to 3 API clients
+# + OTA download exceed the default of 10.
+CONFIG_LWIP_MAX_SOCKETS=16
