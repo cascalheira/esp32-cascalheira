@@ -73,7 +73,10 @@ struct Led(Ws2812Esp32Rmt<'static>);
 
 impl Led {
     fn set(&mut self, c: RGB8) {
-        let _ = self.0.write([c].into_iter());
+        // The board's WS2812B-0807 takes R,G,B byte order while the driver emits the usual
+        // G,R,B, so red and green arrive swapped unless we pre-swap them here.
+        let wire = RGB8 { r: c.g, g: c.r, b: c.b };
+        let _ = self.0.write([wire].into_iter());
     }
 }
 
