@@ -5,7 +5,7 @@ without running ESPHome. Each board lives in its own directory under the vendor 
 
 | Board | Directory | Status |
 |---|---|---|
-| Waveshare ESP32-S3-Relay-6CH (also sold by SpotPear) | [`waveshare/ESP32-S3-Relay-6CH`](waveshare/ESP32-S3-Relay-6CH) | In use: 6-relay irrigation controller with offline schedules |
+| Waveshare ESP32-S3-Relay-6CH (also sold by SpotPear) | [`waveshare/ESP32-S3-Relay-6CH`](waveshare/ESP32-S3-Relay-6CH) · [user manual](waveshare/ESP32-S3-Relay-6CH/MANUAL.md) | In use: 6-relay irrigation controller with offline schedules |
 
 ## Why Rust instead of ESPHome YAML
 
