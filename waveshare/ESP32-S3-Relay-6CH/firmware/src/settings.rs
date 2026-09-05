@@ -31,9 +31,18 @@ impl Store {
         })
     }
 
+    /// Read a string value. NVS strings can be up to ~4000 bytes; the config JSON alone is
+    /// several hundred, so the buffer must be generous. A read error is logged, never swallowed:
+    /// a silently failed read here once reset every setting on each boot.
     fn get_str(nvs: &EspNvs<NvsDefault>, key: &str) -> Option<String> {
-        let mut buf = [0u8; 256];
-        nvs.get_str(key, &mut buf).ok().flatten().map(str::to_string)
+        let mut buf = vec![0u8; 4096];
+        match nvs.get_str(key, &mut buf) {
+            Ok(v) => v.map(str::to_string),
+            Err(e) => {
+                log::error!("nvs: reading {key:?} failed: {e}");
+                None
+            }
+        }
     }
 
     pub fn load_net(&self) -> Option<NetSettings> {
@@ -97,9 +106,18 @@ impl Store {
     }
 
     pub fn load_config(&self) -> Config {
-        Self::get_str(&self.relay, "cfg")
-            .and_then(|s| Config::from_json(&s).map_err(|e| log::warn!("bad cfg in nvs: {e}")).ok())
-            .unwrap_or_default()
+        let cfg = Self::get_str(&self.relay, "cfg")
+            .and_then(|s| Config::from_json(&s).map_err(|e| log::error!("bad cfg in nvs: {e}")).ok());
+        match cfg {
+            Some(c) => {
+                log::info!("config loaded: mode {}, exclusive {}, buzzer {}", c.mode.as_str(), c.exclusive, c.buzzer);
+                c
+            }
+            None => {
+                log::warn!("no usable config in nvs; using defaults");
+                Config::default()
+            }
+        }
     }
 
     pub fn save_config(&self, c: &Config) -> Result<()> {
@@ -127,9 +145,8 @@ impl Store {
     }
 
     pub fn load_usage(&self) -> Option<Usage> {
-        let mut buf = [0u8; 512];
-        let json = self.relay.get_str("usage", &mut buf).ok().flatten()?;
-        serde_json::from_str(json).map_err(|e| log::warn!("bad usage in nvs: {e}")).ok()
+        let json = Self::get_str(&self.relay, "usage")?;
+        serde_json::from_str(&json).map_err(|e| log::warn!("bad usage in nvs: {e}")).ok()
     }
 
     pub fn save_usage(&self, u: &Usage) -> Result<()> {
