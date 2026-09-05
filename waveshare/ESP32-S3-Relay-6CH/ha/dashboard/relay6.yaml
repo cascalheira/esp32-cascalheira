@@ -91,6 +91,10 @@ views:
                 name: Exclusive (one relay at a time)
               - entity: switch.rega_buzzer
                 name: Buzzer
+              - entity: number.rega_rain_hold
+                name: Rain hold (hours, offline schedule)
+              - entity: sensor.rega_rain_hold_until
+                name: Rain hold until
           - type: heading
             heading: Safeguards (max on time, minutes; 0 = off)
             icon: mdi:timer-off-outline

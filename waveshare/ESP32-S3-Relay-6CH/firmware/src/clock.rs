@@ -65,6 +65,17 @@ impl Clock {
         ok.then(|| LocalTime::new(Weekday::from_tm_wday(tm.tm_wday), tm.tm_hour as u16, tm.tm_min as u16))
     }
 
+    /// Format a Unix time in the device's local timezone, e.g. `Sat 20:15`.
+    pub fn format_epoch(&self, epoch: u64) -> String {
+        let t = epoch as sys::time_t;
+        let mut tm: sys::tm = unsafe { std::mem::zeroed() };
+        if unsafe { sys::localtime_r(&t, &mut tm).is_null() } {
+            return "?".into();
+        }
+        let wd = Weekday::from_tm_wday(tm.tm_wday);
+        format!("{:?} {:02}:{:02}", wd, tm.tm_hour, tm.tm_min)
+    }
+
     pub fn local_string(&self) -> String {
         match self.local_time() {
             Some(t) => format!("{:?} {:02}:{:02}", t.weekday, t.minute / 60, t.minute % 60),

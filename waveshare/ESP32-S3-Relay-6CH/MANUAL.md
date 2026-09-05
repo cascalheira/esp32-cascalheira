@@ -94,6 +94,7 @@ The device page shows everything the board offers. What each control does:
 | Mode | *Auto*: Home Assistant controls the relays, and the stored schedule takes over when Home Assistant is offline. *Manual*: Home Assistant only; the schedule never runs. *Off*: all relays off, commands ignored. |
 | Exclusive mode | Only one relay on at a time: switching a relay on switches all others off first. Leave off if one relay is a master valve that must run together with a zone. |
 | Relay N on when clock unknown | What the relay does after a power cut when the board has no network and does not know the time yet. Default off. |
+| Rain hold / Rain hold until | Suspends the board's **stored schedule** for the given number of hours (0 = off), for example when it is raining and Home Assistant is down. Relays that the schedule had switched on go off at once. It never blocks commands from Home Assistant, which keeps its own rain delay. Survives reboots. |
 | Buzzer | Mutes the buzzer. |
 | All relays off | Emergency stop. |
 | Restart | Restarts the board (nothing is lost). |
@@ -110,6 +111,9 @@ the time of the last transfer.
 
 While Home Assistant is running, **it** switches the relays, with rain and frost skips, soak
 cycles, notifications and so on. The board only listens.
+
+If it is raining and Home Assistant is down, set **Rain hold** (hours) on the device page, or via the
+setup page later, to pause the stored schedule.
 
 If Home Assistant becomes unreachable (server down, router down, network cable out), the board
 notices within about two minutes, switches to its stored plan and turns relays on and off at the

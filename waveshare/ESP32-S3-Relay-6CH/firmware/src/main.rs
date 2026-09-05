@@ -245,6 +245,7 @@ fn main() -> Result<()> {
         wdt.feed()?;
         let now_ms = boot.elapsed().as_millis() as u64;
         let local = clock.local_time();
+        ctl.set_epoch(clock.epoch());
         let mut actions: Vec<Action> = Vec::new();
         let creds_exist = !portal_ctx.current.lock().unwrap().ssid.is_empty();
 
@@ -263,6 +264,9 @@ fn main() -> Result<()> {
                     server.publish_state(keys.uptime, State::Float((now_ms / 1000) as f32));
                     server.set_state(keys.local_time, State::Text(clock.local_string()));
                     let (free, min) = publish_heap(&server, &keys);
+                    if ctl.rain_hold_until().is_some() {
+                        publish_rain_hold(&server, &keys, &ctl, &clock, None);
+                    }
                     if tick_count % 600 == 0 {
                         log::info!("heap free {free} B, lowest {min} B, uptime {} s", now_ms / 1000);
                     }
@@ -373,7 +377,9 @@ fn main() -> Result<()> {
                 log::info!("ota: {text}");
                 if text.starts_with("installed") {
                     buzzer.play(Tone::OtaDone);
-                } else if text.starts_with("failed") {
+                } else if text.starts_with("failed") || text.starts_with("rejected") {
+                    // A failed attempt must not block the next one.
+                    ota_running = false;
                     buzzer.play(Tone::Error);
                 }
                 server.set_state(keys.ota_status, State::Text(text));
@@ -435,6 +441,18 @@ fn main() -> Result<()> {
                         // Echo the real state so HA never shows a phantom toggle.
                         server.publish_state(key, State::Bool(ctl.relays()[ch]));
                     }
+                }
+                Command::Number { key, value } if key == keys.rain_hold_hours => {
+                    let hours = value.clamp(0.0, 72.0).round() as u32;
+                    if hours > 0 && !clock.time_known() {
+                        log::warn!("rain hold requested but the clock is not set yet");
+                    }
+                    actions.extend(ctl.set_rain_hold(hours, now_ms, local));
+                    if let Err(e) = store.save_config(ctl.config()) {
+                        log::error!("save config: {e}");
+                    }
+                    log::info!("rain hold {}", if hours > 0 { format!("{hours} h") } else { "cleared".into() });
+                    publish_rain_hold(&server, &keys, &ctl, &clock, Some(hours));
                 }
                 Command::Number { key, value } => {
                     if let Some(ch) = keys.max_on_channel(key) {
@@ -520,9 +538,35 @@ fn main() -> Result<()> {
             },
         }
 
+        if actions.iter().any(|a| matches!(a, Action::RainHoldEnded)) {
+            log::info!("rain hold ended; schedule resumes");
+            if let Err(e) = store.save_config(ctl.config()) {
+                log::error!("save config: {e}");
+            }
+            publish_rain_hold(&server, &keys, &ctl, &clock, Some(0));
+        }
         apply(&mut relays, &server, &keys, &mut tripped, &buzzer, actions);
     }
     Ok(())
+}
+
+/// Publish the rain-hold number (hours, as set) and its human-readable end time.
+fn publish_rain_hold(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, hours: Option<u32>) {
+    let text = match ctl.rain_hold_until() {
+        None => "off".to_string(),
+        Some(until) => match clock.epoch() {
+            Some(now) if until > now => {
+                let left = until - now;
+                format!("{} ({}h{:02}m left)", clock.format_epoch(until), left / 3600, (left % 3600) / 60)
+            }
+            Some(_) => "expiring".to_string(),
+            None => "until the clock is known".to_string(),
+        },
+    };
+    server.set_state(keys.rain_hold, State::Text(text));
+    if let Some(h) = hours {
+        server.set_state(keys.rain_hold_hours, State::Float(h as f32));
+    }
 }
 
 fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool; CHANNELS], buzzer: &Buzzer, actions: Vec<Action>) {
@@ -551,6 +595,7 @@ fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool
                 server.set_state(keys.tripped[ch], State::Bool(true));
             }
             Action::ScheduleWants { ch, on } => log::debug!("schedule wants relay {} {}", ch + 1, on),
+            Action::RainHoldEnded => {}
         }
     }
 }
@@ -570,6 +615,9 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
     server.set_state(keys.local_time, State::Text(clock.local_string()));
     server.set_state(keys.uptime, State::Float(0.0));
     server.set_state(keys.reset_reason, State::Text(reset_reason()));
+    // Number shows remaining hours (rounded up) so the UI reflects a hold restored from flash.
+    let hours = ctl.rain_hold_until().zip(clock.epoch()).map(|(u, n)| if u > n { ((u - n) + 3599) / 3600 } else { 0 }).unwrap_or(0) as u32;
+    publish_rain_hold(server, keys, ctl, clock, Some(hours));
     publish_heap(server, keys);
     publish_schedule(server, keys, ctl.schedule(), None);
 }

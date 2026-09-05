@@ -41,6 +41,8 @@ pub enum Action {
     SafeguardTripped { ch: usize },
     /// What the schedule currently wants for `ch` changed (reported even while online).
     ScheduleWants { ch: usize, on: bool },
+    /// The rain hold expired; the firmware should persist config and refresh the HA entities.
+    RainHoldEnded,
 }
 
 #[derive(Debug)]
@@ -55,6 +57,8 @@ pub struct Controller {
     last_ha_seen_ms: Option<u64>,
     time_known: bool,
     link: Option<Link>,
+    /// Current Unix time in seconds, if known (fed by the firmware on every tick).
+    epoch: Option<u64>,
 }
 
 impl Controller {
@@ -71,6 +75,7 @@ impl Controller {
             last_ha_seen_ms: None,
             time_known: false,
             link: None,
+            epoch: None,
         }
     }
 
@@ -197,6 +202,35 @@ impl Controller {
         self.cfg.buzzer = on;
     }
 
+    /// Feed the wall-clock time (Unix seconds). Needed for the rain hold to expire.
+    pub fn set_epoch(&mut self, epoch: Option<u64>) {
+        self.epoch = epoch;
+    }
+
+    /// Suspend the stored schedule for `hours` (0 clears the hold). Takes effect at once:
+    /// schedule-driven relays that are on go off, and resume at the next block edge after expiry.
+    pub fn set_rain_hold(&mut self, hours: u32, now_ms: u64, local: Option<LocalTime>) -> Vec<Action> {
+        self.cfg.rain_hold_until = match (hours, self.epoch) {
+            (0, _) | (_, None) => 0,
+            (h, Some(e)) => e + h as u64 * 3600,
+        };
+        self.sched_prev = [None; CHANNELS];
+        self.refresh(now_ms, local)
+    }
+
+    pub fn rain_hold_until(&self) -> Option<u64> {
+        (self.cfg.rain_hold_until > 0).then_some(self.cfg.rain_hold_until)
+    }
+
+    pub fn rain_hold_active(&self) -> bool {
+        match (self.cfg.rain_hold_until, self.epoch) {
+            (0, _) => false,
+            (until, Some(e)) => e < until,
+            // Time unknown: assume the hold still stands rather than water into the rain.
+            (_, None) => true,
+        }
+    }
+
     pub fn set_offline_grace_s(&mut self, secs: u32, now_ms: u64, local: Option<LocalTime>) -> Vec<Action> {
         self.cfg.offline_grace_s = secs;
         self.refresh(now_ms, local)
@@ -250,9 +284,17 @@ impl Controller {
             return out;
         }
 
+        // A hold that just expired must re-evaluate every channel, not wait for the next edge.
+        if self.cfg.rain_hold_until > 0 && !self.rain_hold_active() {
+            self.cfg.rain_hold_until = 0;
+            self.sched_prev = [None; CHANNELS];
+            out.push(Action::RainHoldEnded);
+        }
+
         // Report schedule wishes (edge-triggered) and apply them when offline in Auto mode.
+        // During a rain hold the stored schedule counts as empty.
         if let Some(t) = local {
-            let wanted = self.schedule.wanted(t);
+            let wanted = if self.rain_hold_active() { [false; CHANNELS] } else { self.schedule.wanted(t) };
             let apply = new_link == Link::OfflineSchedule && self.cfg.mode == Mode::Auto;
             for ch in 0..CHANNELS {
                 let edge = self.sched_prev[ch] != Some(wanted[ch]);
@@ -563,6 +605,57 @@ mod tests {
         assert_eq!(c.relays(), [false, true, false, false, false, false]);
         assert!(c.config().exclusive);
         assert!(c.set_exclusive(false, 2000).is_empty());
+    }
+
+    #[test]
+    fn rain_hold_suspends_offline_schedule_and_expires() {
+        let mut c = Controller::new(Config::default(), sched());
+        c.set_epoch(Some(1_000_000));
+        // Offline at 06:30: schedule turns ch1 on.
+        assert_eq!(relays(&c.on_time_known(0, t(6, 30))), vec![(0, true)]);
+        // Hold for 2 h: ch1 goes off immediately.
+        let acts = c.set_rain_hold(2, 1000, Some(t(6, 30)));
+        assert_eq!(relays(&acts), vec![(0, false)]);
+        assert!(c.rain_hold_active());
+        assert_eq!(c.rain_hold_until(), Some(1_000_000 + 7200));
+        // Still inside the block later: nothing happens while held.
+        c.set_epoch(Some(1_000_000 + 3600));
+        assert!(relays(&c.tick(2000, Some(t(6, 45)))).is_empty());
+        // Hold expires while the 20:00 block is active: schedule resumes at once.
+        c.set_epoch(Some(1_000_000 + 7201));
+        let acts = c.tick(3000, Some(t(20, 10)));
+        assert!(acts.contains(&Action::RainHoldEnded));
+        assert_eq!(relays(&acts), vec![(1, true)]);
+        assert!(!c.rain_hold_active());
+        assert_eq!(c.config().rain_hold_until, 0, "cleared after expiry");
+        // Clearing by hand.
+        c.set_rain_hold(5, 4000, Some(t(20, 10)));
+        assert!(c.rain_hold_active());
+        let acts = c.set_rain_hold(0, 5000, Some(t(20, 10)));
+        assert_eq!(relays(&acts), vec![(1, true)], "schedule re-applied on clear");
+    }
+
+    #[test]
+    fn rain_hold_never_blocks_ha_commands() {
+        let mut c = Controller::new(Config::default(), sched());
+        c.set_epoch(Some(1_000_000));
+        c.on_time_known(0, t(12, 0));
+        c.on_ha_connected(0);
+        c.set_rain_hold(24, 0, Some(t(12, 0)));
+        assert_eq!(relays(&c.on_ha_command(0, true, 1000)), vec![(0, true)]);
+    }
+
+    #[test]
+    fn rain_hold_survives_reboot_with_unknown_time() {
+        let mut cfg = Config::default();
+        cfg.rain_hold_until = 2_000_000; // persisted from before the reboot
+        let mut c = Controller::new(cfg, sched());
+        // Time not known yet: hold assumed active; once known and inside the hold, still held.
+        assert!(c.rain_hold_active());
+        c.set_epoch(Some(1_999_000));
+        assert!(relays(&c.on_time_known(0, t(6, 30))).is_empty(), "held: ch1 not switched on");
+        c.set_epoch(Some(2_000_001));
+        assert_eq!(relays(&c.tick(1000, Some(t(6, 31)))), vec![(0, true)]);
     }
 
     #[test]

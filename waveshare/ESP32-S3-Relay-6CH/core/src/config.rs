@@ -60,6 +60,10 @@ pub struct Config {
     /// Audible feedback (boot, portal, safeguard trips, reset, OTA) on the on-board buzzer.
     #[serde(default = "default_true")]
     pub buzzer: bool,
+    /// Local rain hold: the stored schedule is ignored until this Unix time (seconds). 0 = none.
+    /// Only affects offline operation; Home Assistant keeps its own rain delay.
+    #[serde(default)]
+    pub rain_hold_until: u64,
 }
 
 fn default_true() -> bool {
@@ -68,7 +72,7 @@ fn default_true() -> bool {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Auto, channels: [ChannelConfig::default(); CHANNELS], offline_grace_s: 0, exclusive: false, buzzer: true }
+        Config { mode: Mode::Auto, channels: [ChannelConfig::default(); CHANNELS], offline_grace_s: 0, exclusive: false, buzzer: true, rain_hold_until: 0 }
     }
 }
 

@@ -50,6 +50,8 @@ pub struct Keys {
     pub heap: u32,
     pub heap_min: u32,
     pub reset_reason: u32,
+    pub rain_hold_hours: u32,
+    pub rain_hold: u32,
 }
 
 impl Keys {
@@ -132,6 +134,15 @@ pub fn build() -> (Registry, Keys) {
             0,
             SensorStateClass::StateClassMeasurement,
         ),
+        rain_hold_hours: r.number(
+            Meta::new("rain_hold_hours", "Rain hold").icon("mdi:weather-pouring"),
+            0.0,
+            72.0,
+            1.0,
+            "h",
+            NumberMode::Box,
+        ),
+        rain_hold: r.text_sensor(Meta::new("rain_hold", "Rain hold until").icon("mdi:weather-pouring")),
         reset_reason: r.text_sensor(Meta::new("reset_reason", "Last reset reason").icon("mdi:restart-alert").diagnostic()),
         heap_min: r.sensor(
             Meta::new("heap_min", "Lowest free heap").icon("mdi:memory").device_class("data_size").diagnostic(),
