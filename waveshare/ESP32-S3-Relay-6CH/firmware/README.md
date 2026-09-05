@@ -30,7 +30,17 @@ BOOT, then flash again.
 - `partitions.csv` — 16 MB layout, two 4 MB OTA slots, 7 MB storage.
 - `sdkconfig.defaults` — stack sizes, USB console, rollback, task watchdog.
 
-## Releasing an update over the air
+## Publishing a release (one-click install in HA)
+
+```sh
+# bump version in Cargo.toml, then:
+./release.sh "release notes"
+```
+Builds, publishes the image as GitHub release `relay-fw-v<version>` and commits
+`release/latest.json`, which every board fetches a minute after boot and every 6 h. HA then shows
+an Install button on the Firmware entity. Note GitHub's raw CDN can lag about a minute.
+
+## Installing an unreleased build over the air
 
 The device pulls a firmware image over HTTP when its `ota` action is called (HA: Developer tools →
 Actions → `esphome.relay6_47abb0_ota` with `url`). Rollback is enabled: if the new image does not

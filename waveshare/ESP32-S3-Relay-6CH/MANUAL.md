@@ -140,11 +140,15 @@ its "on when clock unknown" setting (default: off).
 
 Updates arrive over WiFi; no cable is needed.
 
-1. Someone (or a release script) places the new image on a web server reachable from the board.
-2. In Home Assistant, **Developer tools → Actions**, choose `esphome.relay6_xxxxxx_ota`, enter the
-   image URL and run it.
-3. The *Firmware update* sensor shows progress; the board beeps twice and restarts. If the new
-   firmware fails to start properly, the board returns to the previous version by itself.
+- The board checks for a new firmware a minute after it connects and every six hours. When one
+  exists, Home Assistant shows it under **Settings** (an update badge) and on the device page as
+  **Firmware** with an **Install** button and the release notes.
+- Press **Install**. The board downloads the image (progress is shown), beeps twice and restarts.
+  About 20 seconds later the device page shows the new version. A single low beep means the
+  download failed; the board keeps running the current firmware.
+- If the new firmware fails to start properly, the board returns to the previous version by itself.
+- Developer tools → Actions → `esphome.relay6_xxxxxx_ota` with an image URL still works for
+  installing a test build that is not a published release.
 
 ## 9. Factory reset and moving the board to another home
 
