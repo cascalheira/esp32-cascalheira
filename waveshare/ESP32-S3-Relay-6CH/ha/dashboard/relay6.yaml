@@ -217,6 +217,31 @@ views:
         column_span: 2
         cards:
           - type: custom:garden-irrigation-card
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Watering time per relay (minutes per day)
+            icon: mdi:chart-bar
+          - type: statistics-graph
+            chart_type: bar
+            period: day
+            days_to_show: 30
+            stat_types:
+              - change
+            entities:
+              - entity: sensor.rega_relay_1_total_on_time
+                name: Relay 1
+              - entity: sensor.rega_relay_2_total_on_time
+                name: Relay 2
+              - entity: sensor.rega_relay_3_total_on_time
+                name: Relay 3
+              - entity: sensor.rega_relay_4_total_on_time
+                name: Relay 4
+              - entity: sensor.rega_relay_5_total_on_time
+                name: Relay 5
+              - entity: sensor.rega_relay_6_total_on_time
+                name: Relay 6
 
   - title: Diagnostics
     path: diagnostics

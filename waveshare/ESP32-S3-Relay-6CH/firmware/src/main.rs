@@ -61,6 +61,12 @@ pub enum Msg {
     Provision(NetSettings),
 }
 
+#[derive(PartialEq, Eq)]
+enum MsgKind {
+    Tick,
+    Other,
+}
+
 impl From<Command> for Msg {
     fn from(c: Command) -> Msg {
         Msg::Api(c)
@@ -211,6 +217,10 @@ fn main() -> Result<()> {
     let schedule = store.load_schedule();
     let mut clock = Clock::new(store.load_tz().or_else(|| (!schedule.tz.is_empty()).then(|| schedule.tz.clone())));
     let mut ctl = Controller::new(cfg, schedule);
+    if let Some(u) = store.load_usage() {
+        log::info!("restored on-time counters: today {:?} min, total {:?} min", u.on_today_ms.map(|m| m / 60_000), u.total_ms.map(|m| m / 60_000));
+        ctl.restore_usage(u);
+    }
     let buzzer = Buzzer::spawn(p.ledc.timer0, p.ledc.channel0, AnyOutputPin::from(p.pins.gpio21), ctl.config().buzzer)?;
 
     // API server and entities.
@@ -248,6 +258,7 @@ fn main() -> Result<()> {
         ctl.set_epoch(clock.epoch());
         let mut actions: Vec<Action> = Vec::new();
         let creds_exist = !portal_ctx.current.lock().unwrap().ssid.is_empty();
+        let msg_kind = if matches!(msg, Msg::Tick) { MsgKind::Tick } else { MsgKind::Other };
 
         match msg {
             Msg::Tick => {
@@ -549,6 +560,14 @@ fn main() -> Result<()> {
             },
         }
 
+        let any_on = ctl.relays().iter().any(|r| *r);
+        let periodic = matches!(msg_kind, MsgKind::Tick) && any_on && tick_count % 300 == 0;
+        let relay_off = actions.iter().any(|a| matches!(a, Action::SetRelay { on: false, .. } | Action::DayRolled | Action::DailyCapReached { .. }));
+        if periodic || relay_off {
+            if let Err(e) = store.save_usage(&ctl.usage()) {
+                log::error!("save usage: {e}");
+            }
+        }
         if actions.iter().any(|a| matches!(a, Action::RainHoldEnded)) {
             log::info!("rain hold ended; schedule resumes");
             if let Err(e) = store.save_config(ctl.config()) {
@@ -607,7 +626,10 @@ fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool
             }
             Action::ScheduleWants { ch, on } => log::debug!("schedule wants relay {} {}", ch + 1, on),
             Action::RainHoldEnded => {}
-            Action::DailyUsage { ch, minutes } => server.set_state(keys.on_today[ch], State::Float(minutes as f32)),
+            Action::DailyUsage { ch, minutes, total_minutes } => {
+                server.set_state(keys.on_today[ch], State::Float(minutes as f32));
+                server.set_state(keys.total[ch], State::Float(total_minutes as f32));
+            }
             Action::DailyCapReached { ch } => {
                 log::warn!("relay {} reached its daily limit; blocked until midnight", ch + 1);
                 buzzer.play(Tone::Safeguard);
@@ -632,6 +654,7 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
         server.set_state(keys.safe_state[ch], State::Bool(cfg.channels[ch].safe_state));
         server.set_state(keys.max_daily[ch], State::Float(cfg.channels[ch].max_daily_min as f32));
         server.set_state(keys.on_today[ch], State::Float(ctl.on_today_min()[ch] as f32));
+        server.set_state(keys.total[ch], State::Float(ctl.total_min()[ch] as f32));
         server.set_state(keys.daily_capped[ch], State::Bool(ctl.daily_capped()[ch]));
     }
     server.set_state(keys.mode, State::Text(entities::mode_label(cfg.mode).into()));

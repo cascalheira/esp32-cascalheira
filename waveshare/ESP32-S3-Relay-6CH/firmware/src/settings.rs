@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
-use relay_core::{Config, Schedule};
+use relay_core::{Config, Schedule, Usage};
 
 const NS_NET: &str = "net";
 const NS_RELAY: &str = "relay";
@@ -123,6 +123,17 @@ impl Store {
 
     pub fn save_schedule(&self, s: &Schedule) -> Result<()> {
         self.relay.set_blob("sched", s.to_json().as_bytes())?;
+        Ok(())
+    }
+
+    pub fn load_usage(&self) -> Option<Usage> {
+        let mut buf = [0u8; 512];
+        let json = self.relay.get_str("usage", &mut buf).ok().flatten()?;
+        serde_json::from_str(json).map_err(|e| log::warn!("bad usage in nvs: {e}")).ok()
+    }
+
+    pub fn save_usage(&self, u: &Usage) -> Result<()> {
+        self.relay.set_str("usage", &serde_json::to_string(u)?)?;
         Ok(())
     }
 

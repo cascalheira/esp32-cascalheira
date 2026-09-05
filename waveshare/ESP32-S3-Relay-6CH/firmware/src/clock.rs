@@ -62,7 +62,10 @@ impl Clock {
         let epoch = self.epoch()? as sys::time_t;
         let mut tm: sys::tm = unsafe { std::mem::zeroed() };
         let ok = unsafe { !sys::localtime_r(&epoch, &mut tm).is_null() };
-        ok.then(|| LocalTime::new(Weekday::from_tm_wday(tm.tm_wday), tm.tm_hour as u16, tm.tm_min as u16))
+        ok.then(|| {
+            LocalTime::new(Weekday::from_tm_wday(tm.tm_wday), tm.tm_hour as u16, tm.tm_min as u16)
+                .with_day((tm.tm_year as u32 + 1900) * 366 + tm.tm_yday as u32 + 1)
+        })
     }
 
     /// Format a Unix time in the device's local timezone, e.g. `Sat 20:15`.

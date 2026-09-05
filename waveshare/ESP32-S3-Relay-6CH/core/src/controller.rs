@@ -43,8 +43,8 @@ pub enum Action {
     ScheduleWants { ch: usize, on: bool },
     /// The rain hold expired; the firmware should persist config and refresh the HA entities.
     RainHoldEnded,
-    /// Accumulated on-time today for `ch` changed (whole minutes).
-    DailyUsage { ch: usize, minutes: u32 },
+    /// Accumulated on-time for `ch` changed (whole minutes today and lifetime total).
+    DailyUsage { ch: usize, minutes: u32, total_minutes: u32 },
     /// `ch` hit its daily cap and was switched off; it stays blocked until local midnight.
     DailyCapReached { ch: usize },
     /// A new local day began: usage counters and cap blocks were reset.
@@ -66,9 +66,19 @@ pub struct Controller {
     /// Current Unix time in seconds, if known (fed by the firmware on every tick).
     epoch: Option<u64>,
     on_today_ms: [u64; CHANNELS],
+    total_ms: [u64; CHANNELS],
     capped: [bool; CHANNELS],
-    today: Option<crate::schedule::Weekday>,
+    today: Option<u32>,
     last_account_ms: Option<u64>,
+}
+
+/// Snapshot of the on-time counters, persisted by the firmware.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct Usage {
+    /// Local day key the `on_today_ms` counters belong to (0 = unknown).
+    pub day: u32,
+    pub on_today_ms: [u64; CHANNELS],
+    pub total_ms: [u64; CHANNELS],
 }
 
 impl Controller {
@@ -87,6 +97,7 @@ impl Controller {
             link: None,
             epoch: None,
             on_today_ms: [0; CHANNELS],
+            total_ms: [0; CHANNELS],
             capped: [false; CHANNELS],
             today: None,
             last_account_ms: None,
@@ -118,6 +129,27 @@ impl Controller {
     /// Whole minutes each relay has been on so far today.
     pub fn on_today_min(&self) -> [u32; CHANNELS] {
         core::array::from_fn(|ch| (self.on_today_ms[ch] / 60_000) as u32)
+    }
+
+    /// Whole minutes each relay has been on in its lifetime (since the counters were last reset).
+    pub fn total_min(&self) -> [u32; CHANNELS] {
+        core::array::from_fn(|ch| (self.total_ms[ch] / 60_000) as u32)
+    }
+
+    pub fn usage(&self) -> Usage {
+        Usage { day: self.today.unwrap_or(0), on_today_ms: self.on_today_ms, total_ms: self.total_ms }
+    }
+
+    /// Restore counters saved before a reboot. Today's counters are kept only if the saved day
+    /// matches once the clock is known (checked in `account`); totals are always kept.
+    pub fn restore_usage(&mut self, u: Usage) {
+        self.total_ms = u.total_ms;
+        self.on_today_ms = u.on_today_ms;
+        self.today = (u.day != 0).then_some(u.day);
+        for ch in 0..CHANNELS {
+            let cap = self.cfg.channels[ch].max_daily_min as u64 * 60_000;
+            self.capped[ch] = cap > 0 && self.on_today_ms[ch] >= cap;
+        }
     }
 
     pub fn daily_capped(&self) -> [bool; CHANNELS] {
@@ -308,7 +340,7 @@ impl Controller {
     /// Book on-time since the last call, roll the day at local midnight, enforce daily caps.
     fn account(&mut self, now_ms: u64, local: Option<LocalTime>, out: &mut Vec<Action>) {
         if let Some(t) = local {
-            if self.today.is_some_and(|d| d != t.weekday) {
+            if self.today.is_some_and(|d| d != t.day) {
                 self.on_today_ms = [0; CHANNELS];
                 // Relays that were blocked by the cap re-evaluate their schedule from scratch:
                 // a block refused yesterday may still be active and must now apply. Others keep
@@ -321,10 +353,10 @@ impl Controller {
                 self.capped = [false; CHANNELS];
                 out.push(Action::DayRolled);
                 for ch in 0..CHANNELS {
-                    out.push(Action::DailyUsage { ch, minutes: 0 });
+                    out.push(Action::DailyUsage { ch, minutes: 0, total_minutes: (self.total_ms[ch] / 60_000) as u32 });
                 }
             }
-            self.today = Some(t.weekday);
+            self.today = Some(t.day);
         }
         let delta = self.last_account_ms.map(|l| now_ms.saturating_sub(l)).unwrap_or(0);
         self.last_account_ms = Some(now_ms);
@@ -333,9 +365,15 @@ impl Controller {
                 continue;
             }
             let before_min = self.on_today_ms[ch] / 60_000;
+            let before_total = self.total_ms[ch] / 60_000;
             self.on_today_ms[ch] += delta;
-            if self.on_today_ms[ch] / 60_000 != before_min {
-                out.push(Action::DailyUsage { ch, minutes: (self.on_today_ms[ch] / 60_000) as u32 });
+            self.total_ms[ch] += delta;
+            if self.on_today_ms[ch] / 60_000 != before_min || self.total_ms[ch] / 60_000 != before_total {
+                out.push(Action::DailyUsage {
+                    ch,
+                    minutes: (self.on_today_ms[ch] / 60_000) as u32,
+                    total_minutes: (self.total_ms[ch] / 60_000) as u32,
+                });
             }
             let cap = self.cfg.channels[ch].max_daily_min as u64 * 60_000;
             if cap > 0 && self.on_today_ms[ch] >= cap {
@@ -749,7 +787,7 @@ mod tests {
         c.on_ha_command(0, true, 0);
         // 20 minutes on: usage reported per minute, no cap yet.
         let acts = c.tick(20 * MIN, Some(t(10, 20)));
-        assert!(acts.contains(&Action::DailyUsage { ch: 0, minutes: 20 }));
+        assert!(acts.contains(&Action::DailyUsage { ch: 0, minutes: 20, total_minutes: 20 }));
         assert!(relays(&acts).is_empty());
         c.on_ha_command(0, false, 20 * MIN);
         assert_eq!(c.on_today_min()[0], 20);
@@ -773,6 +811,43 @@ mod tests {
         assert!(!c.daily_capped()[0]);
         assert_eq!(c.on_today_min()[0], 0);
         assert_eq!(relays(&acts), vec![(0, true)]);
+    }
+
+    #[test]
+    fn usage_totals_persist_and_today_resets_only_on_a_new_day() {
+        let mut cfg = Config::default();
+        cfg.channels[0].max_daily_min = 30;
+        let mut c = Controller::new(cfg.clone(), Schedule::default());
+        c.on_time_known(0, t(10, 0)); // day key = Tue
+        c.on_ha_connected(0);
+        c.on_ha_command(0, true, 0);
+        c.tick(25 * MIN, Some(t(10, 25)));
+        c.on_ha_command(0, false, 25 * MIN);
+        let saved = c.usage();
+        assert_eq!(saved.on_today_ms[0], 25 * MIN);
+        assert_eq!(saved.total_ms[0], 25 * MIN);
+        assert_eq!(saved.day, LocalTime::new(Weekday::Tue, 0, 0).day);
+
+        // Reboot the same day: today's minutes and the cap state come back.
+        let mut c2 = Controller::new(cfg.clone(), Schedule::default());
+        c2.restore_usage(saved);
+        assert_eq!(c2.on_today_min()[0], 25);
+        c2.on_time_known(0, t(11, 0));
+        c2.on_ha_connected(0);
+        c2.on_ha_command(0, true, 0);
+        let acts = c2.tick(5 * MIN, Some(t(11, 5)));
+        assert!(acts.contains(&Action::DailyCapReached { ch: 0 }), "25 + 5 reaches the 30 min cap");
+        assert_eq!(c2.total_min()[0], 30);
+
+        // Reboot on another day: today resets, the total is kept, the cap is lifted.
+        let mut c3 = Controller::new(cfg, Schedule::default());
+        c3.restore_usage(c2.usage());
+        assert!(c3.daily_capped()[0], "before the clock is known the saved cap state stands");
+        let acts = c3.on_time_known(0, LocalTime::new(Weekday::Wed, 9, 0));
+        assert!(acts.contains(&Action::DayRolled));
+        assert_eq!(c3.on_today_min()[0], 0);
+        assert_eq!(c3.total_min()[0], 30);
+        assert!(!c3.daily_capped()[0]);
     }
 
     #[test]

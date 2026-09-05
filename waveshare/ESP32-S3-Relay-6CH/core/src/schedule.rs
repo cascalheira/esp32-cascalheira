@@ -128,11 +128,21 @@ pub struct LocalTime {
     pub weekday: Weekday,
     /// Minutes since local midnight, 0..1440.
     pub minute: u16,
+    /// Identifies the local calendar day (any value that changes exactly at local midnight,
+    /// e.g. `year * 366 + day_of_year`). Used for daily counters; 0 if unknown.
+    pub day: u32,
 }
 
 impl LocalTime {
     pub fn new(weekday: Weekday, hour: u16, min: u16) -> LocalTime {
-        LocalTime { weekday, minute: hour * 60 + min }
+        // Tests and simple callers: derive a day key from the weekday so consecutive weekdays
+        // count as different days.
+        LocalTime { weekday, minute: hour * 60 + min, day: weekday as u32 + 1 }
+    }
+
+    pub fn with_day(mut self, day: u32) -> LocalTime {
+        self.day = day;
+        self
     }
 }
 

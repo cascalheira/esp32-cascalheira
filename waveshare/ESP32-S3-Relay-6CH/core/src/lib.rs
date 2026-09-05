@@ -12,7 +12,7 @@ pub mod schedule;
 
 pub use board::*;
 pub use config::{ChannelConfig, Config, Mode};
-pub use controller::{Action, Controller, Link};
+pub use controller::{Action, Controller, Link, Usage};
 pub use schedule::{Block, DayMask, LocalTime, Schedule, ScheduleState, Weekday};
 
 /// Number of relay channels on the board.

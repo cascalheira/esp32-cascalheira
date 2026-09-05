@@ -33,6 +33,7 @@ pub struct Keys {
     pub safe_state: [u32; CHANNELS],
     pub max_daily: [u32; CHANNELS],
     pub on_today: [u32; CHANNELS],
+    pub total: [u32; CHANNELS],
     pub daily_capped: [u32; CHANNELS],
     pub mode: u32,
     pub exclusive: u32,
@@ -80,6 +81,7 @@ pub fn build() -> (Registry, Keys) {
     let mut safe_state = [0u32; CHANNELS];
     let mut max_daily = [0u32; CHANNELS];
     let mut on_today = [0u32; CHANNELS];
+    let mut total = [0u32; CHANNELS];
     let mut daily_capped = [0u32; CHANNELS];
     for i in 0..CHANNELS {
         let n = i + 1;
@@ -116,6 +118,12 @@ pub fn build() -> (Registry, Keys) {
             0,
             SensorStateClass::StateClassMeasurement,
         );
+        total[i] = r.sensor(
+            Meta::new(&format!("relay_{n}_total_on"), &format!("Relay {n} total on time")).icon("mdi:counter").device_class("duration"),
+            "min",
+            0,
+            SensorStateClass::StateClassTotalIncreasing,
+        );
         daily_capped[i] = r.binary_sensor(
             Meta::new(&format!("relay_{n}_daily_limit"), &format!("Relay {n} daily limit reached"))
                 .device_class("problem")
@@ -129,6 +137,7 @@ pub fn build() -> (Registry, Keys) {
         safe_state,
         max_daily,
         on_today,
+        total,
         daily_capped,
         mode: r.select(
             Meta::new("mode", "Mode").icon("mdi:auto-mode").config(),
