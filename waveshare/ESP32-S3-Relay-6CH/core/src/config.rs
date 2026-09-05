@@ -40,6 +40,9 @@ pub struct ChannelConfig {
     /// State to hold while offline with unknown time (cold boot, no network).
     #[serde(default)]
     pub safe_state: bool,
+    /// Maximum total on-time per local day, in minutes. 0 disables the cap.
+    #[serde(default)]
+    pub max_daily_min: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

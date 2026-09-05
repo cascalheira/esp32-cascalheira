@@ -43,6 +43,12 @@ pub enum Action {
     ScheduleWants { ch: usize, on: bool },
     /// The rain hold expired; the firmware should persist config and refresh the HA entities.
     RainHoldEnded,
+    /// Accumulated on-time today for `ch` changed (whole minutes).
+    DailyUsage { ch: usize, minutes: u32 },
+    /// `ch` hit its daily cap and was switched off; it stays blocked until local midnight.
+    DailyCapReached { ch: usize },
+    /// A new local day began: usage counters and cap blocks were reset.
+    DayRolled,
 }
 
 #[derive(Debug)]
@@ -59,6 +65,10 @@ pub struct Controller {
     link: Option<Link>,
     /// Current Unix time in seconds, if known (fed by the firmware on every tick).
     epoch: Option<u64>,
+    on_today_ms: [u64; CHANNELS],
+    capped: [bool; CHANNELS],
+    today: Option<crate::schedule::Weekday>,
+    last_account_ms: Option<u64>,
 }
 
 impl Controller {
@@ -76,6 +86,10 @@ impl Controller {
             time_known: false,
             link: None,
             epoch: None,
+            on_today_ms: [0; CHANNELS],
+            capped: [false; CHANNELS],
+            today: None,
+            last_account_ms: None,
         }
     }
 
@@ -99,6 +113,28 @@ impl Controller {
 
     pub fn time_known(&self) -> bool {
         self.time_known
+    }
+
+    /// Whole minutes each relay has been on so far today.
+    pub fn on_today_min(&self) -> [u32; CHANNELS] {
+        core::array::from_fn(|ch| (self.on_today_ms[ch] / 60_000) as u32)
+    }
+
+    pub fn daily_capped(&self) -> [bool; CHANNELS] {
+        self.capped
+    }
+
+    pub fn set_max_daily_min(&mut self, ch: usize, minutes: u16, now_ms: u64) -> Vec<Action> {
+        if ch < CHANNELS {
+            self.cfg.channels[ch].max_daily_min = minutes;
+            if minutes == 0 && self.capped[ch] {
+                self.capped[ch] = false;
+                self.sched_prev[ch] = None;
+            }
+        }
+        let mut out = Vec::new();
+        self.account(now_ms, None, &mut out);
+        out
     }
 
     // ----- inputs from the firmware -------------------------------------------------------
@@ -269,9 +305,51 @@ impl Controller {
         }
     }
 
+    /// Book on-time since the last call, roll the day at local midnight, enforce daily caps.
+    fn account(&mut self, now_ms: u64, local: Option<LocalTime>, out: &mut Vec<Action>) {
+        if let Some(t) = local {
+            if self.today.is_some_and(|d| d != t.weekday) {
+                self.on_today_ms = [0; CHANNELS];
+                // Relays that were blocked by the cap re-evaluate their schedule from scratch:
+                // a block refused yesterday may still be active and must now apply. Others keep
+                // their state (a manual override is not cancelled by midnight).
+                for ch in 0..CHANNELS {
+                    if self.capped[ch] {
+                        self.sched_prev[ch] = None;
+                    }
+                }
+                self.capped = [false; CHANNELS];
+                out.push(Action::DayRolled);
+                for ch in 0..CHANNELS {
+                    out.push(Action::DailyUsage { ch, minutes: 0 });
+                }
+            }
+            self.today = Some(t.weekday);
+        }
+        let delta = self.last_account_ms.map(|l| now_ms.saturating_sub(l)).unwrap_or(0);
+        self.last_account_ms = Some(now_ms);
+        for ch in 0..CHANNELS {
+            if !self.relays[ch] {
+                continue;
+            }
+            let before_min = self.on_today_ms[ch] / 60_000;
+            self.on_today_ms[ch] += delta;
+            if self.on_today_ms[ch] / 60_000 != before_min {
+                out.push(Action::DailyUsage { ch, minutes: (self.on_today_ms[ch] / 60_000) as u32 });
+            }
+            let cap = self.cfg.channels[ch].max_daily_min as u64 * 60_000;
+            if cap > 0 && self.on_today_ms[ch] >= cap {
+                self.capped[ch] = true;
+                self.set_relay(ch, false, now_ms, out, false);
+                out.push(Action::DailyCapReached { ch });
+            }
+        }
+    }
+
     /// Re-evaluate link, schedule and safeguard. The heart of the arbiter.
     fn refresh(&mut self, now_ms: u64, local: Option<LocalTime>) -> Vec<Action> {
         let mut out = Vec::new();
+        self.account(now_ms, local, &mut out);
         let new_link = self.compute_link(now_ms);
         let link_changed = self.link != Some(new_link);
         if link_changed {
@@ -335,6 +413,9 @@ impl Controller {
     /// `restart_timer` restarts the safeguard on a repeated ON command (HA re-sending ON
     /// means "I still want this on", so give it a fresh window).
     fn set_relay(&mut self, ch: usize, on: bool, now_ms: u64, out: &mut Vec<Action>, restart_timer: bool) {
+        if on && self.capped[ch] {
+            return; // daily cap reached: stays off until midnight, whoever asks
+        }
         if on && self.cfg.exclusive {
             // Interlock: others off before this one goes on (break-before-make).
             for other in 0..CHANNELS {
@@ -477,10 +558,10 @@ mod tests {
         c.on_time_known(0, t(12, 0));
         c.on_ha_connected(0);
         c.on_ha_command(0, true, 0);
-        assert!(c.tick(9 * MIN, Some(t(12, 9))).is_empty());
+        assert!(relays(&c.tick(9 * MIN, Some(t(12, 9)))).is_empty());
         // HA re-sends ON at minute 9: fresh window.
         c.on_ha_command(0, true, 9 * MIN);
-        assert!(c.tick(15 * MIN, Some(t(12, 15))).is_empty());
+        assert!(relays(&c.tick(15 * MIN, Some(t(12, 15)))).is_empty());
         let acts = c.tick(19 * MIN, Some(t(12, 19)));
         assert_eq!(relays(&acts), vec![(0, false)]);
         assert!(acts.contains(&Action::SafeguardTripped { ch: 0 }));
@@ -656,6 +737,57 @@ mod tests {
         assert!(relays(&c.on_time_known(0, t(6, 30))).is_empty(), "held: ch1 not switched on");
         c.set_epoch(Some(2_000_001));
         assert_eq!(relays(&c.tick(1000, Some(t(6, 31)))), vec![(0, true)]);
+    }
+
+    #[test]
+    fn daily_cap_accumulates_blocks_and_resets_at_midnight() {
+        let mut cfg = Config::default();
+        cfg.channels[0].max_daily_min = 30;
+        let mut c = Controller::new(cfg, Schedule::default());
+        c.on_time_known(0, t(10, 0));
+        c.on_ha_connected(0);
+        c.on_ha_command(0, true, 0);
+        // 20 minutes on: usage reported per minute, no cap yet.
+        let acts = c.tick(20 * MIN, Some(t(10, 20)));
+        assert!(acts.contains(&Action::DailyUsage { ch: 0, minutes: 20 }));
+        assert!(relays(&acts).is_empty());
+        c.on_ha_command(0, false, 20 * MIN);
+        assert_eq!(c.on_today_min()[0], 20);
+        // Second run: cap hits after 10 more minutes even though the run itself is short.
+        c.on_ha_command(0, true, 25 * MIN);
+        assert!(relays(&c.tick(30 * MIN, Some(t(10, 30)))).is_empty());
+        let acts = c.tick(35 * MIN, Some(t(10, 35)));
+        assert_eq!(relays(&acts), vec![(0, false)]);
+        assert!(acts.contains(&Action::DailyCapReached { ch: 0 }));
+        assert!(c.daily_capped()[0]);
+        // Any attempt to switch it on is refused: HA, local, schedule.
+        assert!(relays(&c.on_ha_command(0, true, 36 * MIN)).is_empty());
+        assert!(relays(&c.on_local_command(0, true, 36 * MIN)).is_empty());
+        c.on_ha_disconnected(37 * MIN, Some(t(10, 37)));
+        assert!(relays(&c.set_schedule(sched(), 38 * MIN, Some(t(6, 30)))).is_empty(), "schedule wants ch1 but it is capped");
+        // Other relays are unaffected.
+        assert_eq!(relays(&c.on_local_command(1, true, 39 * MIN)), vec![(1, true)]);
+        // Midnight: counters and block reset; the schedule (Tue 06:30 -> ch1) applies again.
+        let acts = c.tick(40 * MIN, Some(LocalTime::new(Weekday::Wed, 6, 30)));
+        assert!(acts.contains(&Action::DayRolled));
+        assert!(!c.daily_capped()[0]);
+        assert_eq!(c.on_today_min()[0], 0);
+        assert_eq!(relays(&acts), vec![(0, true)]);
+    }
+
+    #[test]
+    fn daily_cap_disabled_by_zero_and_clearing_unblocks() {
+        let mut cfg = Config::default();
+        cfg.channels[2].max_daily_min = 1;
+        let mut c = Controller::new(cfg, Schedule::default());
+        c.on_time_known(0, t(12, 0));
+        c.on_ha_connected(0);
+        c.on_ha_command(2, true, 0);
+        assert!(c.tick(MIN, Some(t(12, 1))).contains(&Action::DailyCapReached { ch: 2 }));
+        // Raising the cap to 0 (off) lifts the block.
+        c.set_max_on_min(2, 0, MIN);
+        c.set_max_daily_min(2, 0, MIN);
+        assert_eq!(relays(&c.on_ha_command(2, true, 2 * MIN)), vec![(2, true)]);
     }
 
     #[test]

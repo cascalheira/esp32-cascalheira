@@ -112,6 +112,68 @@ views:
                 name: Relay 5
               - entity: number.rega_relay_6_max_on_time
                 name: Relay 6
+          - type: heading
+            heading: Daily budget (minutes per day; 0 = none) and use today
+            icon: mdi:calendar-clock
+          - type: entities
+            entities:
+              - entity: number.rega_relay_1_max_per_day
+                name: Relay 1 budget
+              - entity: sensor.rega_relay_1_on_today
+                name: Relay 1 today
+              - entity: number.rega_relay_2_max_per_day
+                name: Relay 2 budget
+              - entity: sensor.rega_relay_2_on_today
+                name: Relay 2 today
+              - entity: number.rega_relay_3_max_per_day
+                name: Relay 3 budget
+              - entity: sensor.rega_relay_3_on_today
+                name: Relay 3 today
+              - entity: number.rega_relay_4_max_per_day
+                name: Relay 4 budget
+              - entity: sensor.rega_relay_4_on_today
+                name: Relay 4 today
+              - entity: number.rega_relay_5_max_per_day
+                name: Relay 5 budget
+              - entity: sensor.rega_relay_5_on_today
+                name: Relay 5 today
+              - entity: number.rega_relay_6_max_per_day
+                name: Relay 6 budget
+              - entity: sensor.rega_relay_6_on_today
+                name: Relay 6 today
+          - type: conditional
+            conditions:
+              - condition: or
+                conditions:
+                  - condition: state
+                    entity: binary_sensor.rega_relay_1_daily_limit_reached
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_2_daily_limit_reached
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_3_daily_limit_reached
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_4_daily_limit_reached
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_5_daily_limit_reached
+                    state: "on"
+                  - condition: state
+                    entity: binary_sensor.rega_relay_6_daily_limit_reached
+                    state: "on"
+            card:
+              type: entities
+              title: Daily limit reached
+              state_color: true
+              entities:
+                - binary_sensor.rega_relay_1_daily_limit_reached
+                - binary_sensor.rega_relay_2_daily_limit_reached
+                - binary_sensor.rega_relay_3_daily_limit_reached
+                - binary_sensor.rega_relay_4_daily_limit_reached
+                - binary_sensor.rega_relay_5_daily_limit_reached
+                - binary_sensor.rega_relay_6_daily_limit_reached
           - type: conditional
             conditions:
               - condition: or

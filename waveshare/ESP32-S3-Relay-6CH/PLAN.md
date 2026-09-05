@@ -238,6 +238,7 @@ esp32-cascalheira/
 | 4 ✅ 2026-09-05 device sync implemented in the user's HACS integration ha-garden-irrigation (plan.py + device_sync.py, v0.21.0); verified with mocked HA and against the real board; awaiting deployment in the user's HA. Blueprint kept as fallback. | HA side | Blueprint: on any `schedule.*` helper change or device reconnect, call `schedule.get_schedule` and the device action `esphome.<device>_set_schedule` with the JSON; per-channel schedule helpers drive the switches while online. |
 | 5 ✅ 2026-09-05: OTA via HTTP pull + rollback, task watchdog, RSSI/uptime/heap diagnostics, buzzer feedback (fw 0.6.1) | Ops | OTA via `EspOta` from an HTTP URL sent on `cmd`, rollback enabled, task watchdog, RSSI/uptime diagnostics, buzzer feedback, LED status pages. |
 | 6 | Add-on, Option B | Rust add-on publishing schedules and reconciling state; multi-device. |
+| 9 ✅ 2026-09-05 fw 0.10.0: per-relay daily on-time cap (number, on-today sensor, limit-reached indicator; blocked until local midnight; counter resets on reboot) | Follow-ups |
 | 8 ✅ 2026-09-05 fw 0.9.0: local rain hold (number + status text; pauses the stored schedule, persisted) | Follow-ups |
 | 7 ◐ per-relay safe state (fw 0.8.0), device logs over API (0.7.0), card sync status (integration 0.21.1) done 2026-09-05; RS485 not planned | Optional | DS3231 RTC HAT support; RS485 Modbus master for sensors/meters; MQTT transport as a second path if ever wanted. |
 

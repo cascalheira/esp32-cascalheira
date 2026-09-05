@@ -454,6 +454,17 @@ fn main() -> Result<()> {
                     log::info!("rain hold {}", if hours > 0 { format!("{hours} h") } else { "cleared".into() });
                     publish_rain_hold(&server, &keys, &ctl, &clock, Some(hours));
                 }
+                Command::Number { key, value } if keys.max_daily_channel(key).is_some() => {
+                    let ch = keys.max_daily_channel(key).unwrap();
+                    let minutes = value.clamp(0.0, 1440.0).round() as u16;
+                    actions.extend(ctl.set_max_daily_min(ch, minutes, now_ms));
+                    if let Err(e) = store.save_config(ctl.config()) {
+                        log::error!("save config: {e}");
+                    }
+                    server.set_state(key, State::Float(minutes as f32));
+                    server.set_state(keys.daily_capped[ch], State::Bool(ctl.daily_capped()[ch]));
+                    log::info!("relay {} max per day = {} min", ch + 1, minutes);
+                }
                 Command::Number { key, value } => {
                     if let Some(ch) = keys.max_on_channel(key) {
                         let minutes = value.clamp(0.0, 1440.0).round() as u16;
@@ -596,6 +607,18 @@ fn apply(relays: &mut [Relay], server: &Server, keys: &Keys, tripped: &mut [bool
             }
             Action::ScheduleWants { ch, on } => log::debug!("schedule wants relay {} {}", ch + 1, on),
             Action::RainHoldEnded => {}
+            Action::DailyUsage { ch, minutes } => server.set_state(keys.on_today[ch], State::Float(minutes as f32)),
+            Action::DailyCapReached { ch } => {
+                log::warn!("relay {} reached its daily limit; blocked until midnight", ch + 1);
+                buzzer.play(Tone::Safeguard);
+                server.set_state(keys.daily_capped[ch], State::Bool(true));
+            }
+            Action::DayRolled => {
+                log::info!("new day: daily on-time counters reset");
+                for ch in 0..CHANNELS {
+                    server.set_state(keys.daily_capped[ch], State::Bool(false));
+                }
+            }
         }
     }
 }
@@ -607,6 +630,9 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
         server.set_state(keys.max_on[ch], State::Float(cfg.channels[ch].max_on_min as f32));
         server.set_state(keys.tripped[ch], State::Bool(false));
         server.set_state(keys.safe_state[ch], State::Bool(cfg.channels[ch].safe_state));
+        server.set_state(keys.max_daily[ch], State::Float(cfg.channels[ch].max_daily_min as f32));
+        server.set_state(keys.on_today[ch], State::Float(ctl.on_today_min()[ch] as f32));
+        server.set_state(keys.daily_capped[ch], State::Bool(ctl.daily_capped()[ch]));
     }
     server.set_state(keys.mode, State::Text(entities::mode_label(cfg.mode).into()));
     server.set_state(keys.exclusive, State::Bool(cfg.exclusive));

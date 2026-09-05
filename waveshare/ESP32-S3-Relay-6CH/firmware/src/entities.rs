@@ -31,6 +31,9 @@ pub struct Keys {
     pub max_on: [u32; CHANNELS],
     pub tripped: [u32; CHANNELS],
     pub safe_state: [u32; CHANNELS],
+    pub max_daily: [u32; CHANNELS],
+    pub on_today: [u32; CHANNELS],
+    pub daily_capped: [u32; CHANNELS],
     pub mode: u32,
     pub exclusive: u32,
     pub link: u32,
@@ -64,6 +67,9 @@ impl Keys {
     pub fn safe_state_channel(&self, key: u32) -> Option<usize> {
         self.safe_state.iter().position(|k| *k == key)
     }
+    pub fn max_daily_channel(&self, key: u32) -> Option<usize> {
+        self.max_daily.iter().position(|k| *k == key)
+    }
 }
 
 pub fn build() -> (Registry, Keys) {
@@ -72,6 +78,9 @@ pub fn build() -> (Registry, Keys) {
     let mut max_on = [0u32; CHANNELS];
     let mut tripped = [0u32; CHANNELS];
     let mut safe_state = [0u32; CHANNELS];
+    let mut max_daily = [0u32; CHANNELS];
+    let mut on_today = [0u32; CHANNELS];
+    let mut daily_capped = [0u32; CHANNELS];
     for i in 0..CHANNELS {
         let n = i + 1;
         relay[i] = r.switch(Meta::new(&format!("relay_{n}"), &format!("Relay {n}")).icon("mdi:electric-switch"));
@@ -93,12 +102,34 @@ pub fn build() -> (Registry, Keys) {
                 .icon("mdi:shield-half-full")
                 .config(),
         );
+        max_daily[i] = r.number(
+            Meta::new(&format!("relay_{n}_max_daily"), &format!("Relay {n} max per day")).icon("mdi:calendar-clock").config(),
+            0.0,
+            1440.0,
+            1.0,
+            "min",
+            NumberMode::Box,
+        );
+        on_today[i] = r.sensor(
+            Meta::new(&format!("relay_{n}_on_today"), &format!("Relay {n} on today")).icon("mdi:timer-outline").device_class("duration"),
+            "min",
+            0,
+            SensorStateClass::StateClassMeasurement,
+        );
+        daily_capped[i] = r.binary_sensor(
+            Meta::new(&format!("relay_{n}_daily_limit"), &format!("Relay {n} daily limit reached"))
+                .device_class("problem")
+                .diagnostic(),
+        );
     }
     let keys = Keys {
         relay,
         max_on,
         tripped,
         safe_state,
+        max_daily,
+        on_today,
+        daily_capped,
         mode: r.select(
             Meta::new("mode", "Mode").icon("mdi:auto-mode").config(),
             &[MODE_LABELS[0].1, MODE_LABELS[1].1, MODE_LABELS[2].1],

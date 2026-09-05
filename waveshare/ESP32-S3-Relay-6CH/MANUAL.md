@@ -91,6 +91,9 @@ The device page shows everything the board offers. What each control does:
 | Relay 1..6 | The relays. On/off. |
 | Relay N max on time | Safety limit in minutes. A relay that stays on longer is switched off by the board itself, whoever turned it on. 0 disables the limit. Garden Irrigation sets these automatically from your schedule. |
 | Relay N safeguard tripped | Turns on when the limit above fired; clears when the relay is switched on again. |
+| Relay N max per day | Daily budget in minutes (0 = none). When a relay's total on-time for the day reaches it, the relay is switched off and **cannot be switched on again by anyone** until local midnight. Protects against a stuck schedule or a runaway automation watering in many short runs. |
+| Relay N on today | Minutes the relay has been on since local midnight. Resets at midnight and on a restart of the board. |
+| Relay N daily limit reached | On while the relay is blocked by its daily budget. |
 | Mode | *Auto*: Home Assistant controls the relays, and the stored schedule takes over when Home Assistant is offline. *Manual*: Home Assistant only; the schedule never runs. *Off*: all relays off, commands ignored. |
 | Exclusive mode | Only one relay on at a time: switching a relay on switches all others off first. Leave off if one relay is a master valve that must run together with a zone. |
 | Relay N on when clock unknown | What the relay does after a power cut when the board has no network and does not know the time yet. Default off. |
