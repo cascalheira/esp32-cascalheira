@@ -1,6 +1,6 @@
 {
-  "version": "0.14.2",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.14.2/relay-fw-0.14.2.bin",
-  "summary": "Fix: settings (Exclusive mode, safeguards, mode, buzzer) were reset to defaults on every boot since 0.10.0 because the stored config outgrew its read buffer.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.14.2"
+  "version": "0.14.3",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.14.3/relay-fw-0.14.3.bin",
+  "summary": "Clean re-release of 0.14.2: earlier release images embedded network credentials and have been withdrawn. No functional changes.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.14.3"
 }
