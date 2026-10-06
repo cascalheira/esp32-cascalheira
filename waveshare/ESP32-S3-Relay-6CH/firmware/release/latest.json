@@ -1,6 +1,6 @@
 {
-  "version": "0.14.3",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.14.3/relay-fw-0.14.3.bin",
-  "summary": "Clean re-release of 0.14.2: earlier release images embedded network credentials and have been withdrawn. No functional changes.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.14.3"
+  "version": "0.15.0",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.15.0/relay-fw-0.15.0.bin",
+  "summary": "Optional DS3231 RTC add-on (I2C on GPIO4/GPIO5, e.g. Waveshare Pico-RTC-DS3231): keeps time through power cuts so the stored schedule runs immediately without network. New RTC diagnostic entity. No change without the add-on.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.15.0"
 }
