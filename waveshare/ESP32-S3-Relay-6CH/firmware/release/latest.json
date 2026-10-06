@@ -1,6 +1,6 @@
 {
-  "version": "0.15.0",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.15.0/relay-fw-0.15.0.bin",
-  "summary": "Optional DS3231 RTC add-on (I2C on GPIO4/GPIO5, e.g. Waveshare Pico-RTC-DS3231): keeps time through power cuts so the stored schedule runs immediately without network. New RTC diagnostic entity. No change without the add-on.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.15.0"
+  "version": "0.16.0",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.16.0/relay-fw-0.16.0.bin",
+  "summary": "Exclusive group: choose per relay whether it takes part in exclusive mode (Relay N in exclusive group). Take a master valve or pump out of the group so it can run with a zone. All relays are in the group by default, so nothing changes until you untick one.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.16.0"
 }
