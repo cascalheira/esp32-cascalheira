@@ -97,6 +97,7 @@ The device page shows everything the board offers. What each control does:
 | Relay N daily limit reached | On while the relay is blocked by its daily budget. |
 | Mode | *Auto*: Home Assistant controls the relays, and the stored schedule takes over when Home Assistant is offline. *Manual*: Home Assistant only; the schedule never runs. *Off*: all relays off, commands ignored. |
 | Relay N exclusive set | none, A, B or C. Within a set only one relay can be on: switching one on switches the others in the same set off first, whoever gives the command (Home Assistant, schedule or button). Relays in different sets, or in none, never affect each other. Leave a master valve or pump in "none" so it can run together with a zone. Default: none. |
+| Relay N on at power-up | The relay switches on by itself whenever the board starts: after a power cut, a restart or a firmware update. Home Assistant can still switch it off; it comes back on at the next start. When the board takes over from Home Assistant, a relay with no schedule blocks returns to this state (a rain hold does not affect it). For an always-on load, leave its max on time and daily budget at 0. Mode Off and exclusive sets still apply (in a set, the lowest-numbered relay wins). |
 | Relay N on when clock unknown | What the relay does after a power cut when the board has no network and does not know the time yet. Default off. |
 | Rain hold / Rain hold until | Suspends the board's **stored schedule** for the given number of hours (0 = off), for example when it is raining and Home Assistant is down. Relays that the schedule had switched on go off at once. It never blocks commands from Home Assistant, which keeps its own rain delay. Survives reboots. |
 | Buzzer | Mutes the buzzer. |
@@ -134,7 +135,8 @@ Assistant returns, it takes over again without disturbing relays that are on.
 
 If the board loses power and comes back while Home Assistant is still unreachable, it does not
 know the time until it can reach a time server or Home Assistant. Until then each relay holds
-its "on when clock unknown" setting (default: off), unless an RTC add-on is fitted (below).
+its "on when clock unknown" setting (default: off), or stays on if it is set to "on at power-up",
+unless an RTC add-on is fitted (below).
 
 **Optional RTC add-on.** A DS3231 clock board on the 40-pin header (for example the Waveshare
 Pico-RTC-DS3231, which plugs straight in; loose modules need four wires to 3V3, GND, GPIO4 = SDA
@@ -193,7 +195,7 @@ key on the page. The key is only ever shown there.
 | LED amber, device "unavailable" in Home Assistant | Wrong or changed API key (Reconfigure the ESPHome entry), or Home Assistant cannot reach the board's IP (different VLAN, firewall). |
 | Setup page shows no networks | Press Rescan and wait a few seconds; scanning takes a moment. |
 | Setup page asks for a "current API key" | You reached the page over the home network, not the setup network. Either enter the key, or hold BOOT 5 s and use the setup network. |
-| A relay switches off by itself after a while | Its max on time fired ("safeguard tripped"). Raise the limit or set it to 0. |
+| A relay switches off by itself after a while | Its max on time fired ("safeguard tripped") or its daily budget ran out. Raise the limits or set them to 0, especially for an "on at power-up" relay. |
 | Switching a relay on turns another off | Both relays are in the same exclusive set. Set one of them to another set or to none. |
 | Relays never move while Home Assistant is down | Mode is *Manual*, or no schedule was stored ("Schedule loaded" off). Edit a schedule in Garden Irrigation to resend it. |
 | Board restarts by itself | Read *Last reset reason*: "BROWNOUT" means a weak power supply; "TASK WATCHDOG" or "PANIC" is a firmware fault. *Last crash* then holds the details to report. |

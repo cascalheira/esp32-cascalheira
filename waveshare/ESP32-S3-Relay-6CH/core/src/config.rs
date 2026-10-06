@@ -48,6 +48,10 @@ pub struct ChannelConfig {
     /// sets (or none) never affect each other.
     #[serde(default)]
     pub exclusive_set: u8,
+    /// Switch on at every boot (power cut, restart, update). Offline, a relay without schedule
+    /// blocks is held in this state instead of being switched off.
+    #[serde(default)]
+    pub power_on: bool,
     /// Pre-0.17 membership flag, read only to migrate old configs (see `Config::from_json`).
     #[serde(default, rename = "exclusive_member", skip_serializing)]
     pub legacy_member: Option<bool>,
@@ -80,7 +84,7 @@ impl ChannelConfig {
 
 impl Default for ChannelConfig {
     fn default() -> Self {
-        ChannelConfig { max_on_min: 0, safe_state: false, max_daily_min: 0, exclusive_set: 0, legacy_member: None }
+        ChannelConfig { max_on_min: 0, safe_state: false, max_daily_min: 0, exclusive_set: 0, power_on: false, legacy_member: None }
     }
 }
 

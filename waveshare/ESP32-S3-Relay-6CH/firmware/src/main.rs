@@ -252,6 +252,16 @@ fn main() -> Result<()> {
         log::info!("restored on-time counters: today {:?} min, total {:?} min", u.on_today_ms.map(|m| m / 60_000), u.total_ms.map(|m| m / 60_000));
         ctl.restore_usage(u);
     }
+    // Power-up states first, before anything that can take time.
+    for a in ctl.boot(0) {
+        if let Action::SetRelay { ch, on } = a {
+            let res = if on { relays[ch].set_high() } else { relays[ch].set_low() };
+            if let Err(e) = res {
+                log::error!("relay {}: {e}", ch + 1);
+            }
+            log::info!("relay {} -> {} (power-up state)", ch + 1, if on { "ON" } else { "OFF" });
+        }
+    }
     let buzzer = Buzzer::spawn(p.ledc.timer0, p.ledc.channel0, AnyOutputPin::from(p.pins.gpio21), ctl.config().buzzer)?;
 
     // API server and entities.
@@ -522,6 +532,15 @@ fn main() -> Result<()> {
                     if on {
                         buzzer.play(Tone::Boot);
                     }
+                }
+                Command::Switch { key, on } if keys.power_on_channel(key).is_some() => {
+                    let ch = keys.power_on_channel(key).unwrap();
+                    log::info!("relay {} on at power-up = {}", ch + 1, on);
+                    actions.extend(ctl.set_power_on(ch, on, now_ms, local));
+                    if let Err(e) = store.save_config(ctl.config()) {
+                        log::error!("save config: {e}");
+                    }
+                    server.set_state(key, State::Bool(on));
                 }
                 Command::Switch { key, on } if keys.safe_state_channel(key).is_some() => {
                     let ch = keys.safe_state_channel(key).unwrap();
@@ -843,6 +862,7 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
         server.set_state(keys.max_on[ch], State::Float(cfg.channels[ch].max_on_min as f32));
         server.set_state(keys.tripped[ch], State::Bool(false));
         server.set_state(keys.safe_state[ch], State::Bool(cfg.channels[ch].safe_state));
+        server.set_state(keys.power_on[ch], State::Bool(cfg.channels[ch].power_on));
         server.set_state(keys.exclusive_set[ch], State::Text(relay_core::ChannelConfig::set_label(cfg.channels[ch].exclusive_set).into()));
         server.set_state(keys.max_daily[ch], State::Float(cfg.channels[ch].max_daily_min as f32));
         server.set_state(keys.on_today[ch], State::Float(ctl.on_today_min()[ch] as f32));

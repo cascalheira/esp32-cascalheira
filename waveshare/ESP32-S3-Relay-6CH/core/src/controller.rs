@@ -295,6 +295,34 @@ impl Controller {
 
     /// Enable or disable the interlock. Enabling it while several relays are on keeps only the
     /// lowest-numbered one, so the state is consistent with the rule from then on.
+    /// Apply the power-up states. Call once right after construction, before anything else, so
+    /// "on at power-up" relays come on immediately (exclusive sets and Mode Off still apply).
+    pub fn boot(&mut self, now_ms: u64) -> Vec<Action> {
+        let mut out = Vec::new();
+        if self.cfg.mode == Mode::Off {
+            return out;
+        }
+        for ch in 0..CHANNELS {
+            let set = self.cfg.channels[ch].exclusive_set;
+            // In an exclusive set the lowest-numbered power-up relay wins, as everywhere else.
+            let taken = set != 0 && (0..ch).any(|o| self.relays[o] && self.cfg.channels[o].exclusive_set == set);
+            if self.cfg.channels[ch].power_on && !taken {
+                self.set_relay(ch, true, now_ms, &mut out, false);
+            }
+        }
+        out
+    }
+
+    /// Change a relay's power-up state. Takes effect at the next boot; while the board is running
+    /// its stored schedule it also applies at once to a relay without schedule blocks.
+    pub fn set_power_on(&mut self, ch: usize, on: bool, now_ms: u64, local: Option<LocalTime>) -> Vec<Action> {
+        if ch < CHANNELS {
+            self.cfg.channels[ch].power_on = on;
+            self.sched_prev[ch] = None;
+        }
+        self.refresh(now_ms, local)
+    }
+
     /// Put relay `ch` into exclusive set `set` (0 = none, 1..=3 = A..C).
     pub fn set_exclusive_set(&mut self, ch: usize, set: u8, now_ms: u64) -> Vec<Action> {
         let mut out = Vec::new();
@@ -468,25 +496,28 @@ impl Controller {
             let wanted = if self.rain_hold_active() { [false; CHANNELS] } else { self.schedule.wanted(t) };
             let apply = new_link == Link::OfflineSchedule && self.cfg.mode == Mode::Auto;
             for ch in 0..CHANNELS {
-                let edge = self.sched_prev[ch] != Some(wanted[ch]);
+                // A relay with schedule blocks follows them; one without is held in its power-up
+                // state (off unless "on at power-up"), which a rain hold does not touch.
+                let target = if self.schedule.channels[ch].is_empty() { self.cfg.channels[ch].power_on } else { wanted[ch] };
+                let edge = self.sched_prev[ch] != Some(target);
                 if edge {
-                    self.sched_prev[ch] = Some(wanted[ch]);
-                    out.push(Action::ScheduleWants { ch, on: wanted[ch] });
+                    self.sched_prev[ch] = Some(target);
+                    out.push(Action::ScheduleWants { ch, on: target });
                 }
-                // On entering offline-schedule mode snap every channel to the schedule;
-                // afterwards only follow schedule edges so a safeguard trip or a local
+                // On entering offline-schedule mode snap every channel to its target;
+                // afterwards only follow edges so a safeguard trip or a local
                 // override is not undone until the next block boundary.
                 if apply && (edge || link_changed) {
-                    self.set_relay(ch, wanted[ch], now_ms, &mut out, false);
+                    self.set_relay(ch, target, now_ms, &mut out, false);
                 }
             }
         }
 
-        // With no clock and no HA there is nothing sensible to do but hold the safe state.
+        // With no clock and no HA: hold the "clock unknown" state, or on for power-up-on relays.
         if new_link == Link::OfflineUnknownTime && link_changed {
             for ch in 0..CHANNELS {
-                let on = self.cfg.channels[ch].safe_state;
-                self.set_relay(ch, on, now_ms, &mut out, false);
+                let c = self.cfg.channels[ch];
+                self.set_relay(ch, c.safe_state || c.power_on, now_ms, &mut out, false);
             }
         }
 
@@ -804,6 +835,58 @@ mod tests {
         // Out-of-range sets are ignored.
         assert!(c.set_exclusive_set(0, 9, 4).is_empty());
         assert_eq!(c.config().channels[0].exclusive_set, 1);
+    }
+
+    #[test]
+    fn power_on_relays_start_on_and_stay_on_without_ha() {
+        let mut cfg = sets([0, 0, 0, 0, 0, 0]);
+        cfg.channels[2].power_on = true; // e.g. a pump that should always run
+        let mut c = Controller::new(cfg.clone(), sched());
+        assert_eq!(relays(&c.boot(0)), vec![(2, true)], "on immediately at boot");
+        // Cold boot, no clock, no HA: still on (safe state of the others is off).
+        assert!(relays(&c.tick(1000, None)).is_empty());
+        assert!(c.relays()[2]);
+        // Clock arrives with HA still gone: the schedule drives ch1/ch2, ch3 has no blocks -> stays on.
+        assert_eq!(relays(&c.on_time_known(2000, t(6, 30))), vec![(0, true)]);
+        assert!(c.relays()[2]);
+        // HA connects and switches it off: it stays off while HA is there.
+        c.on_ha_connected(3000);
+        assert_eq!(relays(&c.on_ha_command(2, false, 4000)), vec![(2, false)]);
+        assert!(relays(&c.tick(5000, Some(t(6, 40)))).is_empty());
+        // HA goes away: the board takes over and puts it back to its power-up state.
+        let acts = c.on_ha_disconnected(6000, Some(t(6, 41)));
+        assert!(relays(&acts).contains(&(2, true)));
+        // A rain hold pauses the schedule but leaves the always-on relay alone.
+        c.set_epoch(Some(1_000_000));
+        let acts = c.set_rain_hold(3, 7000, Some(t(6, 42)));
+        assert_eq!(relays(&acts), vec![(0, false)], "only the scheduled relay stops");
+        assert!(c.relays()[2]);
+        // After a reboot it is on again.
+        let mut c2 = Controller::new(cfg, sched());
+        assert_eq!(relays(&c2.boot(0)), vec![(2, true)]);
+    }
+
+    #[test]
+    fn power_on_respects_mode_off_and_exclusive_sets() {
+        let mut cfg = sets([1, 1, 0, 0, 0, 0]);
+        cfg.channels[0].power_on = true;
+        cfg.channels[1].power_on = true;
+        let mut c = Controller::new(cfg.clone(), Schedule::default());
+        c.boot(0);
+        assert_eq!(c.relays(), [true, false, false, false, false, false], "one per exclusive set");
+        cfg.mode = Mode::Off;
+        let mut off = Controller::new(cfg, Schedule::default());
+        assert!(off.boot(0).is_empty(), "Mode Off keeps everything off");
+    }
+
+    #[test]
+    fn plain_relays_without_blocks_still_go_off_when_the_board_takes_over() {
+        let mut c = Controller::new(Config::default(), sched());
+        c.boot(0);
+        c.on_time_known(0, t(12, 0));
+        c.on_ha_connected(0);
+        c.on_ha_command(4, true, 0);
+        assert!(relays(&c.on_ha_disconnected(1000, Some(t(12, 1)))).contains(&(4, false)));
     }
 
     #[test]

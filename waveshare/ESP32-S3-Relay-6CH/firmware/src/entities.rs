@@ -32,6 +32,7 @@ pub struct Keys {
     pub tripped: [u32; CHANNELS],
     pub safe_state: [u32; CHANNELS],
     pub exclusive_set: [u32; CHANNELS],
+    pub power_on: [u32; CHANNELS],
     pub max_daily: [u32; CHANNELS],
     pub on_today: [u32; CHANNELS],
     pub total: [u32; CHANNELS],
@@ -70,6 +71,9 @@ impl Keys {
     pub fn max_on_channel(&self, key: u32) -> Option<usize> {
         self.max_on.iter().position(|k| *k == key)
     }
+    pub fn power_on_channel(&self, key: u32) -> Option<usize> {
+        self.power_on.iter().position(|k| *k == key)
+    }
     pub fn exclusive_set_channel(&self, key: u32) -> Option<usize> {
         self.exclusive_set.iter().position(|k| *k == key)
     }
@@ -88,6 +92,7 @@ pub fn build() -> (Registry, Keys) {
     let mut tripped = [0u32; CHANNELS];
     let mut safe_state = [0u32; CHANNELS];
     let mut exclusive_set = [0u32; CHANNELS];
+    let mut power_on = [0u32; CHANNELS];
     let mut max_daily = [0u32; CHANNELS];
     let mut on_today = [0u32; CHANNELS];
     let mut total = [0u32; CHANNELS];
@@ -112,6 +117,9 @@ pub fn build() -> (Registry, Keys) {
             Meta::new(&format!("relay_{n}_safe_state"), &format!("Relay {n} on when clock unknown"))
                 .icon("mdi:shield-half-full")
                 .config(),
+        );
+        power_on[i] = r.switch(
+            Meta::new(&format!("relay_{n}_power_on"), &format!("Relay {n} on at power-up")).icon("mdi:power-plug").config(),
         );
         exclusive_set[i] = r.select(
             Meta::new(&format!("relay_{n}_exclusive_set"), &format!("Relay {n} exclusive set"))
@@ -151,6 +159,7 @@ pub fn build() -> (Registry, Keys) {
         tripped,
         safe_state,
         exclusive_set,
+        power_on,
         max_daily,
         on_today,
         total,
