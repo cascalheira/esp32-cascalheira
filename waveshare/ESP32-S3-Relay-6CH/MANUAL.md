@@ -134,7 +134,19 @@ Assistant returns, it takes over again without disturbing relays that are on.
 
 If the board loses power and comes back while Home Assistant is still unreachable, it does not
 know the time until it can reach a time server or Home Assistant. Until then each relay holds
-its "on when clock unknown" setting (default: off).
+its "on when clock unknown" setting (default: off), unless an RTC add-on is fitted (below).
+
+**Optional RTC add-on.** A DS3231 clock board on the 40-pin header (for example the Waveshare
+Pico-RTC-DS3231, which plugs straight in; loose modules need four wires to 3V3, GND, GPIO4 = SDA
+and GPIO5 = SCL) keeps time through power cuts on its coin cell. Fit it with the power off. The
+board detects it automatically; the **RTC** diagnostic on the device page shows its state:
+
+| RTC shows | Meaning |
+|---|---|
+| not detected | No RTC on the header (normal without the add-on). |
+| fitted, time not set | New chip or flat battery. It is set automatically the next time Home Assistant or a time server provides the time. |
+| ok, set from Home Assistant / SNTP | Working; it is refreshed on every Home Assistant connection and every time-server sync. |
+| ok, time loaded at boot | The board started without network and took the time from the RTC, so the stored schedule runs immediately. |
 
 ## 7. Everyday use
 

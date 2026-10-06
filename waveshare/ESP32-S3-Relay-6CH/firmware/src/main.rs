@@ -7,6 +7,7 @@ mod entities;
 mod logger;
 mod ota;
 mod portal;
+mod rtc;
 mod settings;
 mod updater;
 mod wifi;
@@ -229,6 +230,23 @@ fn main() -> Result<()> {
     let cfg = store.load_config();
     let schedule = store.load_schedule();
     let mut clock = Clock::new(store.load_tz().or_else(|| (!schedule.tz.is_empty()).then(|| schedule.tz.clone())));
+    // Optional hardware clock: lets the stored schedule run right after a power cut with no network.
+    let mut rtc = rtc::Rtc::probe(p.i2c0, p.pins.gpio4, p.pins.gpio5);
+    let mut rtc_status = if rtc.is_some() { "fitted".to_string() } else { "not detected".to_string() };
+    let mut time_source = "SNTP";
+    if let Some(r) = rtc.as_mut() {
+        match r.read() {
+            Ok(Some(epoch)) if !clock.time_known() => {
+                clock.set_epoch(epoch, "RTC");
+                time_source = "RTC";
+                rtc_status = "ok, time loaded at boot".into();
+            }
+            Ok(Some(_)) => rtc_status = "ok".into(),
+            Ok(None) => rtc_status = "fitted, time not set (new chip or battery flat)".into(),
+            Err(e) => rtc_status = format!("error: {e}"),
+        }
+        log::info!("rtc: {rtc_status}");
+    }
     let mut ctl = Controller::new(cfg, schedule);
     if let Some(u) = store.load_usage() {
         log::info!("restored on-time counters: today {:?} min, total {:?} min", u.on_today_ms.map(|m| m / 60_000), u.total_ms.map(|m| m / 60_000));
@@ -266,6 +284,7 @@ fn main() -> Result<()> {
     let mut update_checked_at: Option<u64> = None;
     let mut update_state = UpdateState { current_version: FW_VERSION.into(), latest_version: FW_VERSION.into(), title: "relay-fw".into(), ..Default::default() };
     server.set_state(keys.update, State::Update(update_state.clone()));
+    server.set_state(keys.rtc, State::Text(rtc_status.clone()));
     server.set_state(keys.ota_status, State::Text(format!("{FW_VERSION} idle")));
 
     for msg in rx {
@@ -280,9 +299,18 @@ fn main() -> Result<()> {
         match msg {
             Msg::Tick => {
                 tick_count += 1;
+                if clock.sntp_just_synced() {
+                    if let (Some(r), Some(e)) = (rtc.as_mut(), clock.epoch()) {
+                        rtc_status = match r.write(e) {
+                            Ok(()) => format!("ok, set from SNTP at {}", clock.local_string()),
+                            Err(err) => format!("error: {err}"),
+                        };
+                        server.set_state(keys.rtc, State::Text(rtc_status.clone()));
+                    }
+                }
                 if !time_known && clock.time_known() {
                     time_known = true;
-                    log::info!("time became valid via SNTP: {}", clock.local_string());
+                    log::info!("time became valid via {time_source}: {}", clock.local_string());
                     if let Some(l) = local {
                         actions.extend(ctl.on_time_known(now_ms, l));
                     }
@@ -638,7 +666,14 @@ fn main() -> Result<()> {
                 },
                 Command::Update { .. } => {}
                 Command::Time { epoch_seconds, timezone } => {
-                    clock.set_epoch(epoch_seconds);
+                    clock.set_epoch(epoch_seconds as u64, "Home Assistant");
+                    if let Some(r) = rtc.as_mut() {
+                        rtc_status = match r.write(epoch_seconds as u64) {
+                            Ok(()) => format!("ok, set from Home Assistant at {}", clock.local_string()),
+                            Err(err) => format!("error: {err}"),
+                        };
+                        server.set_state(keys.rtc, State::Text(rtc_status.clone()));
+                    }
                     if clock.set_tz(&timezone) {
                         let _ = store.save_tz(&timezone);
                     }

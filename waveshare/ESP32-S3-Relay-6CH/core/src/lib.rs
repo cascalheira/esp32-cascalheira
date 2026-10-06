@@ -7,6 +7,7 @@
 pub mod board;
 pub mod config;
 pub mod controller;
+pub mod rtc;
 pub mod safeguard;
 pub mod schedule;
 

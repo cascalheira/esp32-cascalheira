@@ -41,12 +41,17 @@ impl Clock {
         true
     }
 
-    pub fn set_epoch(&self, epoch_seconds: u32) {
+    pub fn set_epoch(&self, epoch_seconds: u64, source: &str) {
         let tv = sys::timeval { tv_sec: epoch_seconds as _, tv_usec: 0 };
         unsafe {
             sys::settimeofday(&tv, std::ptr::null());
         }
-        log::info!("clock set from Home Assistant: epoch {epoch_seconds}");
+        log::info!("clock set from {source}: epoch {epoch_seconds}");
+    }
+
+    /// True exactly once after each completed SNTP sync (ESP-IDF resets the status on read).
+    pub fn sntp_just_synced(&self) -> bool {
+        self._sntp.as_ref().is_some_and(|s| matches!(s.get_sync_status(), esp_idf_svc::sntp::SyncStatus::Completed))
     }
 
     pub fn epoch(&self) -> Option<u64> {

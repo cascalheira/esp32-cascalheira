@@ -58,6 +58,7 @@ pub struct Keys {
     pub rain_hold: u32,
     pub update: u32,
     pub last_crash: u32,
+    pub rtc: u32,
     pub clear_crash: u32,
     pub debug_crash: u32,
 }
@@ -188,6 +189,7 @@ pub fn build() -> (Registry, Keys) {
         ),
         rain_hold: r.text_sensor(Meta::new("rain_hold", "Rain hold until").icon("mdi:weather-pouring")),
         update: r.update(Meta::new("firmware", "Firmware").config()),
+        rtc: r.text_sensor(Meta::new("rtc", "RTC").icon("mdi:clock-check-outline").diagnostic()),
         last_crash: r.text_sensor(Meta::new("last_crash", "Last crash").icon("mdi:bug-outline").diagnostic()),
         clear_crash: r.button(Meta::new("clear_crash", "Clear crash report").icon("mdi:bug-check-outline").config()),
         // Test aid: deliberately crash to verify the report. Reboots the board (relays go off).

@@ -14,7 +14,7 @@ no PSRAM, external SMA antenna).
 | RESET button | EN | |
 | USB-C | 19 / 20 | Native USB-Serial-JTAG, no bridge chip. Download mode: hold BOOT, tap RESET |
 | UART0 | 43 / 44 | Only on the Pico header |
-| I2C (optional RTC HAT) | SDA 4, SCL 5 | Waveshare Pico-RTC-DS3231 at 0x68 |
+| I2C (optional RTC HAT) | SDA 4, SCL 5 | DS3231 at 0x68 (e.g. Waveshare Pico-RTC-DS3231). Supported since firmware 0.15.0: read at boot, written on every HA/SNTP time. |
 
 Power: 7–36 V DC screw terminal or 5 V USB-C. Relays HLS8L-DC5V, SPDT (NO/NC/COM), 10 A 250 VAC / 10 A 30 VDC.
 Six coils plus WiFi may brown out a weak USB port; use the DC terminal in deployment.
