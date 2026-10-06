@@ -5,6 +5,7 @@ Rust (esp-idf-svc, ESP-IDF v5.5.3) firmware for the Waveshare/SpotPear ESP32-S3-
 ## Build and flash
 
 ```sh
+export PATH="$HOME/.cargo/bin:$PATH"  # rustup must win over a Homebrew rust install
 . ~/export-esp.sh                 # Xtensa LLVM/GCC paths written by espup
 export RUSTUP_TOOLCHAIN=esp       # needed: the shell profile pins RUSTUP_TOOLCHAIN to stable,
                                   # which overrides rust-toolchain.toml
@@ -22,6 +23,23 @@ the ESP-IDF CMake build under `target/` caches absolute paths and fails otherwis
 
 Console is on the native USB-Serial-JTAG. If the port stops enumerating, hold BOOT, tap RESET, release
 BOOT, then flash again.
+
+## Flashing a new unit
+
+Each unit gets its own git-ignored seed file with the WiFi credentials and a fresh API key:
+
+```sh
+KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+printf 'WIFI_SSID=...\nWIFI_PASS=...\nNOISE_PSK=%s\nDEVICE_NAME=relay6\nFRIENDLY_NAME=...\n' "$KEY" > secrets.<mac12>.env
+RELAY_SECRETS=secrets.<mac12>.env cargo build --release
+espflash erase-flash
+espflash flash --flash-size 16mb --bootloader <esp-idf bootloader.bin> --partition-table partitions.csv \
+    target/xtensa-esp32s3-espidf/release/relay-fw
+```
+
+Without any seed file the unit boots into the setup access point instead (see the manual).
+Release images are built with `RELAY_NO_SEED=1` and `release.sh` refuses to publish an image that
+contains any value from `secrets.env`.
 
 ## Layout
 

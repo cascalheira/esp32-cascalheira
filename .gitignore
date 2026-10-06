@@ -2,5 +2,5 @@ target/
 .embuild/
 **/sdkconfig
 **/sdkconfig.old
-**/secrets.env
+**/secrets*.env
 .DS_Store

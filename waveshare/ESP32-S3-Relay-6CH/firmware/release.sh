@@ -8,10 +8,19 @@ VER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
 REPO=cascalheira/esp32-cascalheira
 TAG="relay-fw-v$VER"
 . ~/export-esp.sh
+# rustup proxies must win over a Homebrew rust, or the Xtensa toolchain is never used.
+export PATH="$HOME/.cargo/bin:$PATH"
 export RUSTUP_TOOLCHAIN=esp
-cargo build --release
+# Public image: never embed the WiFi/API-key seed from secrets.env.
+RELAY_NO_SEED=1 cargo build --release
 OUT=/tmp/relay-fw-$VER.bin
 espflash save-image --chip esp32s3 --flash-size 16mb target/xtensa-esp32s3-espidf/release/relay-fw "$OUT"
+# Refuse to publish if any seed value still made it into the image.
+if [ -f secrets.env ]; then
+  sed -nE 's/^(WIFI_PASS|NOISE_PSK|WIFI_SSID)=//p' secrets.env | while IFS= read -r v; do
+    if [ -n "$v" ] && grep -q -a -F -- "$v" "$OUT"; then echo "ABORT: a secret from secrets.env is inside $OUT"; exit 1; fi
+  done || exit 1
+fi
 gh release create "$TAG" "$OUT" --repo "$REPO" --title "relay-fw $VER" --notes "$NOTES"
 SUMMARY=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$NOTES")
 cat > release/latest.json <<JSONEOF
