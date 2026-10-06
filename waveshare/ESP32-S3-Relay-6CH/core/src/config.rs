@@ -43,16 +43,44 @@ pub struct ChannelConfig {
     /// Maximum total on-time per local day, in minutes. 0 disables the cap.
     #[serde(default)]
     pub max_daily_min: u16,
-    /// Member of the exclusive group: with exclusive mode on, switching this relay on turns the
-    /// other members off. Non-members are never affected. Default true (every relay is a member),
-    /// which is also what configs saved before this field existed get.
-    #[serde(default = "default_true")]
-    pub exclusive_member: bool,
+    /// Exclusive set: 0 = none, 1..=MAX_EXCLUSIVE_SETS = A, B, C. Within a set only one relay
+    /// may be on; switching one on turns the others in the same set off. Relays in different
+    /// sets (or none) never affect each other.
+    #[serde(default)]
+    pub exclusive_set: u8,
+    /// Pre-0.17 membership flag, read only to migrate old configs (see `Config::from_json`).
+    #[serde(default, rename = "exclusive_member", skip_serializing)]
+    pub legacy_member: Option<bool>,
+}
+
+/// Number of exclusive sets offered (A, B, C): with six relays a fourth set could hold one
+/// relay at most and would mean nothing.
+pub const MAX_EXCLUSIVE_SETS: u8 = 3;
+
+impl ChannelConfig {
+    pub fn set_label(set: u8) -> &'static str {
+        match set {
+            1 => "A",
+            2 => "B",
+            3 => "C",
+            _ => "none",
+        }
+    }
+
+    pub fn parse_set(label: &str) -> Option<u8> {
+        match label.trim().to_ascii_uppercase().as_str() {
+            "NONE" | "-" | "" => Some(0),
+            "A" => Some(1),
+            "B" => Some(2),
+            "C" => Some(3),
+            _ => None,
+        }
+    }
 }
 
 impl Default for ChannelConfig {
     fn default() -> Self {
-        ChannelConfig { max_on_min: 0, safe_state: false, max_daily_min: 0, exclusive_member: true }
+        ChannelConfig { max_on_min: 0, safe_state: false, max_daily_min: 0, exclusive_set: 0, legacy_member: None }
     }
 }
 
@@ -66,11 +94,9 @@ pub struct Config {
     /// still connected. 0 disables the heartbeat check (MQTT connected == online).
     #[serde(default)]
     pub offline_grace_s: u32,
-    /// Interlock: turning any relay on switches all other relays off first, whatever the
-    /// source (HA, schedule, local). Useful for a pump feeding several valves or for loads
-    /// that must never run together.
-    #[serde(default)]
-    pub exclusive: bool,
+    /// Pre-0.17 global exclusive switch, read only to migrate old configs into set A.
+    #[serde(default, rename = "exclusive", skip_serializing)]
+    pub legacy_exclusive: bool,
     /// Audible feedback (boot, portal, safeguard trips, reset, OTA) on the on-board buzzer.
     #[serde(default = "default_true")]
     pub buzzer: bool,
@@ -86,13 +112,31 @@ fn default_true() -> bool {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { mode: Mode::Auto, channels: [ChannelConfig::default(); CHANNELS], offline_grace_s: 0, exclusive: false, buzzer: true, rain_hold_until: 0 }
+        Config { mode: Mode::Auto, channels: [ChannelConfig::default(); CHANNELS], offline_grace_s: 0, legacy_exclusive: false, buzzer: true, rain_hold_until: 0 }
     }
 }
 
 impl Config {
     pub fn from_json(s: &str) -> Result<Config, String> {
-        serde_json::from_str(s).map_err(|e| e.to_string())
+        let mut c: Config = serde_json::from_str(s).map_err(|e| e.to_string())?;
+        // Migrate the old single exclusive group: with the global switch on, every member
+        // (all relays unless explicitly taken out) goes into set A. New configs never write
+        // the legacy fields, so this runs once.
+        if c.legacy_exclusive {
+            for ch in c.channels.iter_mut() {
+                if ch.exclusive_set == 0 && ch.legacy_member != Some(false) {
+                    ch.exclusive_set = 1;
+                }
+            }
+        }
+        c.legacy_exclusive = false;
+        for ch in c.channels.iter_mut() {
+            ch.legacy_member = None;
+            if ch.exclusive_set > MAX_EXCLUSIVE_SETS {
+                ch.exclusive_set = 0;
+            }
+        }
+        Ok(c)
     }
 
     pub fn to_json(&self) -> String {
@@ -115,11 +159,27 @@ mod tests {
         let partial = Config::from_json(r#"{"mode":"manual"}"#).unwrap();
         assert_eq!(partial.mode, Mode::Manual);
         assert_eq!(partial.offline_grace_s, 0);
-        assert!(!partial.exclusive, "old configs without the field default to off");
+        assert!(partial.channels.iter().all(|c| c.exclusive_set == 0), "no sets by default");
         assert!(partial.buzzer, "buzzer defaults to on for old configs");
-        // A config saved before exclusive groups existed keeps every relay in the group.
+        // 0.14-0.15 config with exclusive on: every relay migrates into set A.
         let old = Config::from_json(r#"{"channels":[{"max_on_min":25},{},{},{},{},{}],"exclusive":true}"#).unwrap();
-        assert!(old.channels.iter().all(|c| c.exclusive_member));
+        assert!(old.channels.iter().all(|c| c.exclusive_set == 1));
+        assert_eq!(old.channels[0].max_on_min, 25);
+        // 0.16 config: members go to set A, explicit non-members to none.
+        let v16 = Config::from_json(
+            r#"{"channels":[{},{"exclusive_member":true},{"exclusive_member":false},{},{},{"exclusive_member":false}],"exclusive":true}"#,
+        )
+        .unwrap();
+        assert_eq!(v16.channels.map(|c| c.exclusive_set), [1, 1, 0, 1, 1, 0]);
+        // Exclusive off: nothing migrates.
+        let off = Config::from_json(r#"{"channels":[{},{},{},{},{},{}],"exclusive":false}"#).unwrap();
+        assert!(off.channels.iter().all(|c| c.exclusive_set == 0));
+        // New format round-trips and never writes the legacy keys.
+        let json = v16.to_json();
+        assert!(!json.contains("exclusive_member") && !json.contains("\"exclusive\""), "{json}");
+        assert_eq!(Config::from_json(&json).unwrap().channels.map(|c| c.exclusive_set), [1, 1, 0, 1, 1, 0]);
+        assert_eq!(ChannelConfig::parse_set(" b "), Some(2));
+        assert_eq!(ChannelConfig::set_label(3), "C");
         assert_eq!(Mode::parse(" OFF "), Some(Mode::Off));
         assert_eq!(Mode::parse("nope"), None);
     }

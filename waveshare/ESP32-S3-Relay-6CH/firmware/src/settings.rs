@@ -110,7 +110,12 @@ impl Store {
             .and_then(|s| Config::from_json(&s).map_err(|e| log::error!("bad cfg in nvs: {e}")).ok());
         match cfg {
             Some(c) => {
-                log::info!("config loaded: mode {}, exclusive {}, buzzer {}", c.mode.as_str(), c.exclusive, c.buzzer);
+                log::info!(
+                    "config loaded: mode {}, exclusive sets {:?}, buzzer {}",
+                    c.mode.as_str(),
+                    c.channels.map(|ch| relay_core::ChannelConfig::set_label(ch.exclusive_set)),
+                    c.buzzer
+                );
                 c
             }
             None => {

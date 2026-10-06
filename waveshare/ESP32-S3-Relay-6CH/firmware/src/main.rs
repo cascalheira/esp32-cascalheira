@@ -523,27 +523,10 @@ fn main() -> Result<()> {
                         buzzer.play(Tone::Boot);
                     }
                 }
-                Command::Switch { key, on } if keys.exclusive_member_channel(key).is_some() => {
-                    let ch = keys.exclusive_member_channel(key).unwrap();
-                    log::info!("relay {} {} the exclusive group", ch + 1, if on { "joins" } else { "leaves" });
-                    actions.extend(ctl.set_exclusive_member(ch, on, now_ms));
-                    if let Err(e) = store.save_config(ctl.config()) {
-                        log::error!("save config: {e}");
-                    }
-                    server.set_state(key, State::Bool(on));
-                }
                 Command::Switch { key, on } if keys.safe_state_channel(key).is_some() => {
                     let ch = keys.safe_state_channel(key).unwrap();
                     log::info!("relay {} safe state (clock unknown) = {}", ch + 1, if on { "ON" } else { "OFF" });
                     actions.extend(ctl.set_safe_state(ch, on, now_ms));
-                    if let Err(e) = store.save_config(ctl.config()) {
-                        log::error!("save config: {e}");
-                    }
-                    server.set_state(key, State::Bool(on));
-                }
-                Command::Switch { key, on } if key == keys.exclusive => {
-                    log::info!("exclusive mode {}", if on { "ON" } else { "OFF" });
-                    actions.extend(ctl.set_exclusive(on, now_ms));
                     if let Err(e) = store.save_config(ctl.config()) {
                         log::error!("save config: {e}");
                     }
@@ -600,6 +583,20 @@ fn main() -> Result<()> {
                         server.set_state(key, State::Text(entities::mode_label(mode).into()));
                     } else {
                         log::warn!("unknown mode option {option:?}");
+                    }
+                }
+                Command::Select { key, option } if keys.exclusive_set_channel(key).is_some() => {
+                    let ch = keys.exclusive_set_channel(key).unwrap();
+                    match relay_core::ChannelConfig::parse_set(&option) {
+                        Some(set) => {
+                            log::info!("relay {} exclusive set -> {}", ch + 1, relay_core::ChannelConfig::set_label(set));
+                            actions.extend(ctl.set_exclusive_set(ch, set, now_ms));
+                            if let Err(e) = store.save_config(ctl.config()) {
+                                log::error!("save config: {e}");
+                            }
+                            server.set_state(key, State::Text(relay_core::ChannelConfig::set_label(set).into()));
+                        }
+                        None => log::warn!("unknown exclusive set {option:?}"),
                     }
                 }
                 Command::Select { .. } => {}
@@ -744,6 +741,8 @@ struct Snapshot<'a> {
     rain_hold: Option<String>,
     relays: [bool; CHANNELS],
     on_today_min: [u32; CHANNELS],
+    /// Exclusive set label per relay ("none", "A", "B", "C").
+    exclusive_set: [&'static str; CHANNELS],
 }
 
 fn schedule_snapshot(ctl: &Controller, clock: &Clock, local: Option<LocalTime>, ha_clients: usize) -> String {
@@ -763,6 +762,7 @@ fn schedule_snapshot(ctl: &Controller, clock: &Clock, local: Option<LocalTime>, 
         rain_hold: ctl.rain_hold_active().then(|| rain_hold_text(ctl, clock)),
         relays: ctl.relays(),
         on_today_min: ctl.on_today_min(),
+        exclusive_set: core::array::from_fn(|ch| relay_core::ChannelConfig::set_label(ctl.config().channels[ch].exclusive_set)),
     };
     serde_json::to_string(&snap).unwrap_or_else(|_| "{}".into())
 }
@@ -843,14 +843,13 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
         server.set_state(keys.max_on[ch], State::Float(cfg.channels[ch].max_on_min as f32));
         server.set_state(keys.tripped[ch], State::Bool(false));
         server.set_state(keys.safe_state[ch], State::Bool(cfg.channels[ch].safe_state));
-        server.set_state(keys.exclusive_member[ch], State::Bool(cfg.channels[ch].exclusive_member));
+        server.set_state(keys.exclusive_set[ch], State::Text(relay_core::ChannelConfig::set_label(cfg.channels[ch].exclusive_set).into()));
         server.set_state(keys.max_daily[ch], State::Float(cfg.channels[ch].max_daily_min as f32));
         server.set_state(keys.on_today[ch], State::Float(ctl.on_today_min()[ch] as f32));
         server.set_state(keys.total[ch], State::Float(ctl.total_min()[ch] as f32));
         server.set_state(keys.daily_capped[ch], State::Bool(ctl.daily_capped()[ch]));
     }
     server.set_state(keys.mode, State::Text(entities::mode_label(cfg.mode).into()));
-    server.set_state(keys.exclusive, State::Bool(cfg.exclusive));
     server.set_state(keys.buzzer, State::Bool(cfg.buzzer));
     server.set_state(keys.link, State::Text(link.unwrap_or(ctl.link()).as_str().into()));
     server.set_state(keys.local_time, State::Text(clock.local_string()));

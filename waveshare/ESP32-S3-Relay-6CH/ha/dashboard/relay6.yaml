@@ -87,20 +87,18 @@ views:
             entities:
               - entity: select.rega_mode
                 name: Mode
-              - entity: switch.rega_exclusive_mode
-                name: Exclusive (one group member at a time)
-              - entity: switch.rega_relay_1_in_exclusive_group
-                name: "  Relay 1 in group"
-              - entity: switch.rega_relay_2_in_exclusive_group
-                name: "  Relay 2 in group"
-              - entity: switch.rega_relay_3_in_exclusive_group
-                name: "  Relay 3 in group"
-              - entity: switch.rega_relay_4_in_exclusive_group
-                name: "  Relay 4 in group"
-              - entity: switch.rega_relay_5_in_exclusive_group
-                name: "  Relay 5 in group"
-              - entity: switch.rega_relay_6_in_exclusive_group
-                name: "  Relay 6 in group"
+              - entity: select.rega_relay_1_exclusive_set
+                name: Relay 1 exclusive set
+              - entity: select.rega_relay_2_exclusive_set
+                name: Relay 2 exclusive set
+              - entity: select.rega_relay_3_exclusive_set
+                name: Relay 3 exclusive set
+              - entity: select.rega_relay_4_exclusive_set
+                name: Relay 4 exclusive set
+              - entity: select.rega_relay_5_exclusive_set
+                name: Relay 5 exclusive set
+              - entity: select.rega_relay_6_exclusive_set
+                name: Relay 6 exclusive set
               - entity: switch.rega_buzzer
                 name: Buzzer
               - entity: number.rega_rain_hold

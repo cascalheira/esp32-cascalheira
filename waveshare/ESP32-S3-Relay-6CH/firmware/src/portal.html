@@ -13,7 +13,7 @@ button.secondary{background:#e8eaed;color:#222;margin-top:.5rem}
 .row{display:flex;gap:8px;align-items:center}.row input{flex:1}
 .status{font-size:.9rem;line-height:1.5}.ok{color:#188038}.bad{color:#c5221f}
 small{color:#777}
-.grid{display:grid;grid-template-columns:64px repeat(7,1fr);gap:3px 4px;margin-top:.6rem;font-size:.78rem;align-items:center}
+.grid{display:grid;grid-template-columns:84px repeat(7,1fr);gap:3px 4px;margin-top:.6rem;font-size:.78rem;align-items:center}
 .grid .hd{text-align:center;color:#777}
 .grid .lbl{color:#333;white-space:nowrap}.grid .lbl.on{color:#188038;font-weight:600}
 .track{position:relative;height:14px;background:#eceff1;border-radius:3px;overflow:hidden}
@@ -86,7 +86,8 @@ if(!s.mode)return;
 $('schedmeta').textContent=s.blocks?`rev ${s.rev} · ${pl(s.blocks,'block')}${s.tz?' · '+s.tz:''}`:'none stored';
 const n=(s.relays||[]).length||6;let h='<div></div>'+DAYS.map(d=>`<div class=hd>${d}</div>`).join('');
 for(let ch=1;ch<=n;ch++){const blocks=(s.channels&&s.channels[String(ch)])||[];
-h+=`<div class="lbl${s.relays&&s.relays[ch-1]?' on':''}" title="on today: ${s.on_today_min?s.on_today_min[ch-1]:0} min">Relay ${ch}</div>`;
+const set=s.exclusive_set&&s.exclusive_set[ch-1]!=='none'?` (${s.exclusive_set[ch-1]})`:'';
+h+=`<div class="lbl${s.relays&&s.relays[ch-1]?' on':''}" title="on today: ${s.on_today_min?s.on_today_min[ch-1]:0} min${set?'; exclusive set '+s.exclusive_set[ch-1]:''}">Relay ${ch}${set}</div>`;
 for(let d=0;d<7;d++){let spans='';for(const b of blocks){if(b.days[d]==='-')continue;
 spans+=`<span style="left:${b.from/1440*100}%;width:${(b.to-b.from)/1440*100}%" title="Relay ${ch} ${DAYS[d]} ${hm(b.from)}–${hm(b.to)}"></span>`;}
 const today=s.weekday===d;const now=today&&s.minute!=null?`<span class=now style="left:${Math.min(s.minute/1440*100,99.8)}%"></span>`:'';

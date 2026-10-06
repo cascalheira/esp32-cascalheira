@@ -295,34 +295,26 @@ impl Controller {
 
     /// Enable or disable the interlock. Enabling it while several relays are on keeps only the
     /// lowest-numbered one, so the state is consistent with the rule from then on.
-    pub fn set_exclusive(&mut self, on: bool, now_ms: u64) -> Vec<Action> {
-        self.cfg.exclusive = on;
+    /// Put relay `ch` into exclusive set `set` (0 = none, 1..=3 = A..C).
+    pub fn set_exclusive_set(&mut self, ch: usize, set: u8, now_ms: u64) -> Vec<Action> {
         let mut out = Vec::new();
-        self.enforce_exclusive(now_ms, &mut out);
-        out
-    }
-
-    /// Add `ch` to or remove it from the exclusive group.
-    pub fn set_exclusive_member(&mut self, ch: usize, member: bool, now_ms: u64) -> Vec<Action> {
-        let mut out = Vec::new();
-        if ch < CHANNELS {
-            self.cfg.channels[ch].exclusive_member = member;
+        if ch < CHANNELS && set <= crate::config::MAX_EXCLUSIVE_SETS {
+            self.cfg.channels[ch].exclusive_set = set;
             self.enforce_exclusive(now_ms, &mut out);
         }
         out
     }
 
-    /// With exclusive mode on, at most one group member may be on: keep the lowest-numbered one
-    /// that is on and switch the other members off. Non-members are left alone.
+    /// At most one relay per exclusive set may be on: in each set keep the lowest-numbered relay
+    /// that is on and switch the others off. Relays in no set are left alone.
     fn enforce_exclusive(&mut self, now_ms: u64, out: &mut Vec<Action>) {
-        if !self.cfg.exclusive {
-            return;
-        }
-        let member = |c: &Config, ch: usize| c.channels[ch].exclusive_member;
-        if let Some(first) = (0..CHANNELS).find(|&ch| self.relays[ch] && member(&self.cfg, ch)) {
-            for ch in (first + 1)..CHANNELS {
-                if member(&self.cfg, ch) {
-                    self.set_relay(ch, false, now_ms, out, false);
+        for set in 1..=crate::config::MAX_EXCLUSIVE_SETS {
+            let in_set = |c: &Config, ch: usize| c.channels[ch].exclusive_set == set;
+            if let Some(first) = (0..CHANNELS).find(|&ch| self.relays[ch] && in_set(&self.cfg, ch)) {
+                for ch in (first + 1)..CHANNELS {
+                    if in_set(&self.cfg, ch) {
+                        self.set_relay(ch, false, now_ms, out, false);
+                    }
                 }
             }
         }
@@ -517,10 +509,11 @@ impl Controller {
         if on && self.capped[ch] {
             return; // daily cap reached: stays off until midnight, whoever asks
         }
-        if on && self.cfg.exclusive && self.cfg.channels[ch].exclusive_member {
-            // Interlock: other group members off before this one goes on (break-before-make).
+        let set = self.cfg.channels[ch].exclusive_set;
+        if on && set != 0 {
+            // Interlock: the others in this set off before this one goes on (break-before-make).
             for other in 0..CHANNELS {
-                if other != ch && self.relays[other] && self.cfg.channels[other].exclusive_member {
+                if other != ch && self.relays[other] && self.cfg.channels[other].exclusive_set == set {
                     self.relays[other] = false;
                     self.safeguard.relay_changed(other, false, now_ms);
                     out.push(Action::SetRelay { ch: other, on: false });
@@ -747,83 +740,70 @@ mod tests {
         assert_eq!(relays(&c.set_mode(Mode::Auto, 8000, Some(t(6, 0)))), vec![(0, true)]);
     }
 
-    #[test]
-    fn exclusive_interlock_turns_others_off_first() {
+    fn sets(spec: [u8; CHANNELS]) -> Config {
         let mut cfg = Config::default();
-        cfg.exclusive = true;
-        let mut c = Controller::new(cfg, Schedule::default());
+        for (ch, s) in spec.iter().enumerate() {
+            cfg.channels[ch].exclusive_set = *s;
+        }
+        cfg
+    }
+
+    #[test]
+    fn exclusive_set_turns_others_in_the_set_off_first() {
+        let mut c = Controller::new(sets([1; CHANNELS]), Schedule::default());
         c.on_time_known(0, t(12, 0));
         c.on_ha_connected(0);
         assert_eq!(relays(&c.on_ha_command(0, true, 1000)), vec![(0, true)]);
         // Turning relay 3 on switches relay 1 off first, then relay 3 on.
         assert_eq!(relays(&c.on_ha_command(2, true, 2000)), vec![(0, false), (2, true)]);
-        assert_eq!(c.relays(), [false, false, true, false, false, false]);
         // Turning something off never touches the others.
         assert_eq!(relays(&c.on_ha_command(2, false, 3000)), vec![(2, false)]);
         // Local commands and the schedule obey the same rule.
         c.on_local_command(4, true, 4000);
         assert_eq!(relays(&c.on_local_command(5, true, 5000)), vec![(4, false), (5, true)]);
-        // Losing HA with an empty schedule snaps everything off; a new schedule wanting ch1
-        // then turns it on (nothing else is on, so no interlock action).
         assert_eq!(relays(&c.on_ha_disconnected(6000, Some(t(6, 30)))), vec![(5, false)]);
         assert_eq!(relays(&c.set_schedule(sched(), 7000, Some(t(6, 30)))), vec![(0, true)]);
-        // Schedule edge with another relay on: interlock applies to schedule-driven changes too.
         c.on_local_command(3, true, 8000);
         assert_eq!(c.relays(), [false, false, false, true, false, false], "ch1 off, ch4 on");
         assert_eq!(relays(&c.tick(9000, Some(t(20, 0)))), vec![(3, false), (1, true)]);
     }
 
     #[test]
-    fn exclusive_group_only_affects_members() {
-        let mut cfg = Config::default();
-        cfg.exclusive = true;
-        cfg.channels[5].exclusive_member = false; // relay 6 = master valve, outside the group
-        let mut c = Controller::new(cfg, Schedule::default());
+    fn separate_sets_and_unassigned_relays_are_independent() {
+        // Relays 1-3 in A, 4-5 in B, 6 (master valve) in none.
+        let mut c = Controller::new(sets([1, 1, 1, 2, 2, 0]), Schedule::default());
         c.on_time_known(0, t(12, 0));
         c.on_ha_connected(0);
-        assert_eq!(relays(&c.on_ha_command(5, true, 0)), vec![(5, true)]);
-        // Members switch each other off but never touch the non-member.
-        assert_eq!(relays(&c.on_ha_command(0, true, 1)), vec![(0, true)]);
-        assert_eq!(relays(&c.on_ha_command(1, true, 2)), vec![(0, false), (1, true)]);
-        assert_eq!(c.relays(), [false, true, false, false, false, true]);
-        // Switching the non-member on or off never affects members.
-        c.on_ha_command(5, false, 3);
-        assert_eq!(relays(&c.on_ha_command(5, true, 4)), vec![(5, true)]);
-        assert_eq!(c.relays(), [false, true, false, false, false, true]);
-    }
-
-    #[test]
-    fn changing_membership_enforces_one_member_on() {
-        let mut c = Controller::new(Config::default(), Schedule::default());
-        c.on_time_known(0, t(12, 0));
-        c.on_ha_connected(0);
-        c.set_exclusive_member(2, false, 0);
-        c.set_exclusive(true, 0);
-        c.on_ha_command(1, true, 0);
-        c.on_ha_command(2, true, 0); // not a member: both stay on
-        assert_eq!(c.relays(), [false, true, true, false, false, false]);
-        // Putting relay 3 into the group leaves two members on: the lowest one is kept.
-        assert_eq!(relays(&c.set_exclusive_member(2, true, 1)), vec![(2, false)]);
-        assert_eq!(c.relays(), [false, true, false, false, false, false]);
-        // Taking a relay out of the group never switches anything.
-        assert!(relays(&c.set_exclusive_member(1, false, 2)).is_empty());
-        assert!(!c.config().channels[1].exclusive_member);
-    }
-
-    #[test]
-    fn enabling_exclusive_with_several_on_keeps_lowest() {
-        let mut c = Controller::new(Config::default(), Schedule::default());
-        c.on_time_known(0, t(12, 0));
-        c.on_ha_connected(0);
-        c.on_ha_command(1, true, 0);
-        c.on_ha_command(3, true, 0);
         c.on_ha_command(5, true, 0);
-        let mut r = relays(&c.set_exclusive(true, 1000));
-        r.sort();
-        assert_eq!(r, vec![(3, false), (5, false)]);
-        assert_eq!(c.relays(), [false, true, false, false, false, false]);
-        assert!(c.config().exclusive);
-        assert!(c.set_exclusive(false, 2000).is_empty());
+        c.on_ha_command(0, true, 1);
+        c.on_ha_command(3, true, 2);
+        assert_eq!(c.relays(), [true, false, false, true, false, true], "one per set plus the free relay");
+        assert_eq!(relays(&c.on_ha_command(1, true, 3)), vec![(0, false), (1, true)], "only set A reacts");
+        assert_eq!(relays(&c.on_ha_command(4, true, 4)), vec![(3, false), (4, true)], "only set B reacts");
+        assert_eq!(c.relays(), [false, true, false, false, true, true]);
+        c.on_ha_command(5, false, 5);
+        assert_eq!(relays(&c.on_ha_command(5, true, 6)), vec![(5, true)], "free relay never affects sets");
+    }
+
+    #[test]
+    fn changing_a_relays_set_enforces_one_on_per_set() {
+        let mut c = Controller::new(sets([1, 1, 0, 0, 0, 0]), Schedule::default());
+        c.on_time_known(0, t(12, 0));
+        c.on_ha_connected(0);
+        c.on_ha_command(1, true, 0);
+        c.on_ha_command(2, true, 0);
+        c.on_ha_command(3, true, 0);
+        assert_eq!(c.relays(), [false, true, true, true, false, false]);
+        // Relay 3 joins set A where relay 2 is on: the lowest-numbered stays on.
+        assert_eq!(relays(&c.set_exclusive_set(2, 1, 1)), vec![(2, false)]);
+        // Relay 4 joins set B alone: nothing changes.
+        assert!(relays(&c.set_exclusive_set(3, 2, 2)).is_empty());
+        // Leaving a set never switches anything.
+        assert!(relays(&c.set_exclusive_set(1, 0, 3)).is_empty());
+        assert_eq!(c.config().channels.map(|ch| ch.exclusive_set), [1, 0, 1, 2, 0, 0]);
+        // Out-of-range sets are ignored.
+        assert!(c.set_exclusive_set(0, 9, 4).is_empty());
+        assert_eq!(c.config().channels[0].exclusive_set, 1);
     }
 
     #[test]

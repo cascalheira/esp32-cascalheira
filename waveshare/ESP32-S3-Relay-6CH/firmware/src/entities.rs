@@ -31,13 +31,12 @@ pub struct Keys {
     pub max_on: [u32; CHANNELS],
     pub tripped: [u32; CHANNELS],
     pub safe_state: [u32; CHANNELS],
-    pub exclusive_member: [u32; CHANNELS],
+    pub exclusive_set: [u32; CHANNELS],
     pub max_daily: [u32; CHANNELS],
     pub on_today: [u32; CHANNELS],
     pub total: [u32; CHANNELS],
     pub daily_capped: [u32; CHANNELS],
     pub mode: u32,
-    pub exclusive: u32,
     pub link: u32,
     pub local_time: u32,
     pub schedule_loaded: u32,
@@ -71,8 +70,8 @@ impl Keys {
     pub fn max_on_channel(&self, key: u32) -> Option<usize> {
         self.max_on.iter().position(|k| *k == key)
     }
-    pub fn exclusive_member_channel(&self, key: u32) -> Option<usize> {
-        self.exclusive_member.iter().position(|k| *k == key)
+    pub fn exclusive_set_channel(&self, key: u32) -> Option<usize> {
+        self.exclusive_set.iter().position(|k| *k == key)
     }
     pub fn safe_state_channel(&self, key: u32) -> Option<usize> {
         self.safe_state.iter().position(|k| *k == key)
@@ -88,7 +87,7 @@ pub fn build() -> (Registry, Keys) {
     let mut max_on = [0u32; CHANNELS];
     let mut tripped = [0u32; CHANNELS];
     let mut safe_state = [0u32; CHANNELS];
-    let mut exclusive_member = [0u32; CHANNELS];
+    let mut exclusive_set = [0u32; CHANNELS];
     let mut max_daily = [0u32; CHANNELS];
     let mut on_today = [0u32; CHANNELS];
     let mut total = [0u32; CHANNELS];
@@ -114,10 +113,11 @@ pub fn build() -> (Registry, Keys) {
                 .icon("mdi:shield-half-full")
                 .config(),
         );
-        exclusive_member[i] = r.switch(
-            Meta::new(&format!("relay_{n}_exclusive_member"), &format!("Relay {n} in exclusive group"))
+        exclusive_set[i] = r.select(
+            Meta::new(&format!("relay_{n}_exclusive_set"), &format!("Relay {n} exclusive set"))
                 .icon("mdi:swap-horizontal-circle-outline")
                 .config(),
+            &["none", "A", "B", "C"],
         );
         max_daily[i] = r.number(
             Meta::new(&format!("relay_{n}_max_daily"), &format!("Relay {n} max per day")).icon("mdi:calendar-clock").config(),
@@ -150,7 +150,7 @@ pub fn build() -> (Registry, Keys) {
         max_on,
         tripped,
         safe_state,
-        exclusive_member,
+        exclusive_set,
         max_daily,
         on_today,
         total,
@@ -159,7 +159,6 @@ pub fn build() -> (Registry, Keys) {
             Meta::new("mode", "Mode").icon("mdi:auto-mode").config(),
             &[MODE_LABELS[0].1, MODE_LABELS[1].1, MODE_LABELS[2].1],
         ),
-        exclusive: r.switch(Meta::new("exclusive", "Exclusive mode").icon("mdi:swap-horizontal-bold").config()),
         link: r.text_sensor(Meta::new("link", "Link").icon("mdi:lan-connect").diagnostic()),
         local_time: r.text_sensor(Meta::new("local_time", "Device local time").icon("mdi:clock-outline").diagnostic()),
         schedule_loaded: r.binary_sensor(Meta::new("schedule_loaded", "Schedule loaded").icon("mdi:calendar-check").diagnostic()),
