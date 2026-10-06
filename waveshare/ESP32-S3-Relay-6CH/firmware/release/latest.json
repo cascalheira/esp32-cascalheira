@@ -1,6 +1,6 @@
 {
-  "version": "0.16.0",
-  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.16.0/relay-fw-0.16.0.bin",
-  "summary": "Exclusive group: choose per relay whether it takes part in exclusive mode (Relay N in exclusive group). Take a master valve or pump out of the group so it can run with a zone. All relays are in the group by default, so nothing changes until you untick one.",
-  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.16.0"
+  "version": "0.17.0",
+  "url": "https://github.com/cascalheira/esp32-cascalheira/releases/download/relay-fw-v0.17.0/relay-fw-0.17.0.bin",
+  "summary": "Exclusive sets: each relay can be put in set A, B or C (or none); only one relay per set can be on. Replaces the Exclusive mode switch and exclusive group; existing settings migrate automatically (Exclusive on: group members go to set A). After updating, remove the old 'Exclusive mode' and 'in exclusive group' entities in Home Assistant, which are no longer provided.",
+  "release_url": "https://github.com/cascalheira/esp32-cascalheira/releases/tag/relay-fw-v0.17.0"
 }
