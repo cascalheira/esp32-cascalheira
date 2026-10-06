@@ -31,6 +31,7 @@ pub struct Keys {
     pub max_on: [u32; CHANNELS],
     pub tripped: [u32; CHANNELS],
     pub safe_state: [u32; CHANNELS],
+    pub exclusive_member: [u32; CHANNELS],
     pub max_daily: [u32; CHANNELS],
     pub on_today: [u32; CHANNELS],
     pub total: [u32; CHANNELS],
@@ -70,6 +71,9 @@ impl Keys {
     pub fn max_on_channel(&self, key: u32) -> Option<usize> {
         self.max_on.iter().position(|k| *k == key)
     }
+    pub fn exclusive_member_channel(&self, key: u32) -> Option<usize> {
+        self.exclusive_member.iter().position(|k| *k == key)
+    }
     pub fn safe_state_channel(&self, key: u32) -> Option<usize> {
         self.safe_state.iter().position(|k| *k == key)
     }
@@ -84,6 +88,7 @@ pub fn build() -> (Registry, Keys) {
     let mut max_on = [0u32; CHANNELS];
     let mut tripped = [0u32; CHANNELS];
     let mut safe_state = [0u32; CHANNELS];
+    let mut exclusive_member = [0u32; CHANNELS];
     let mut max_daily = [0u32; CHANNELS];
     let mut on_today = [0u32; CHANNELS];
     let mut total = [0u32; CHANNELS];
@@ -107,6 +112,11 @@ pub fn build() -> (Registry, Keys) {
         safe_state[i] = r.switch(
             Meta::new(&format!("relay_{n}_safe_state"), &format!("Relay {n} on when clock unknown"))
                 .icon("mdi:shield-half-full")
+                .config(),
+        );
+        exclusive_member[i] = r.switch(
+            Meta::new(&format!("relay_{n}_exclusive_member"), &format!("Relay {n} in exclusive group"))
+                .icon("mdi:swap-horizontal-circle-outline")
                 .config(),
         );
         max_daily[i] = r.number(
@@ -140,6 +150,7 @@ pub fn build() -> (Registry, Keys) {
         max_on,
         tripped,
         safe_state,
+        exclusive_member,
         max_daily,
         on_today,
         total,

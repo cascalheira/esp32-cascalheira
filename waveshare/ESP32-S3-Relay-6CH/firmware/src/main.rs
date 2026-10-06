@@ -523,6 +523,15 @@ fn main() -> Result<()> {
                         buzzer.play(Tone::Boot);
                     }
                 }
+                Command::Switch { key, on } if keys.exclusive_member_channel(key).is_some() => {
+                    let ch = keys.exclusive_member_channel(key).unwrap();
+                    log::info!("relay {} {} the exclusive group", ch + 1, if on { "joins" } else { "leaves" });
+                    actions.extend(ctl.set_exclusive_member(ch, on, now_ms));
+                    if let Err(e) = store.save_config(ctl.config()) {
+                        log::error!("save config: {e}");
+                    }
+                    server.set_state(key, State::Bool(on));
+                }
                 Command::Switch { key, on } if keys.safe_state_channel(key).is_some() => {
                     let ch = keys.safe_state_channel(key).unwrap();
                     log::info!("relay {} safe state (clock unknown) = {}", ch + 1, if on { "ON" } else { "OFF" });
@@ -834,6 +843,7 @@ fn publish_all(server: &Server, keys: &Keys, ctl: &Controller, clock: &Clock, li
         server.set_state(keys.max_on[ch], State::Float(cfg.channels[ch].max_on_min as f32));
         server.set_state(keys.tripped[ch], State::Bool(false));
         server.set_state(keys.safe_state[ch], State::Bool(cfg.channels[ch].safe_state));
+        server.set_state(keys.exclusive_member[ch], State::Bool(cfg.channels[ch].exclusive_member));
         server.set_state(keys.max_daily[ch], State::Float(cfg.channels[ch].max_daily_min as f32));
         server.set_state(keys.on_today[ch], State::Float(ctl.on_today_min()[ch] as f32));
         server.set_state(keys.total[ch], State::Float(ctl.total_min()[ch] as f32));

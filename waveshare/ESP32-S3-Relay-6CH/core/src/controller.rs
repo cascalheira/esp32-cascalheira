@@ -298,14 +298,34 @@ impl Controller {
     pub fn set_exclusive(&mut self, on: bool, now_ms: u64) -> Vec<Action> {
         self.cfg.exclusive = on;
         let mut out = Vec::new();
-        if on {
-            if let Some(first) = self.relays.iter().position(|r| *r) {
-                for ch in (first + 1)..CHANNELS {
-                    self.set_relay(ch, false, now_ms, &mut out, false);
+        self.enforce_exclusive(now_ms, &mut out);
+        out
+    }
+
+    /// Add `ch` to or remove it from the exclusive group.
+    pub fn set_exclusive_member(&mut self, ch: usize, member: bool, now_ms: u64) -> Vec<Action> {
+        let mut out = Vec::new();
+        if ch < CHANNELS {
+            self.cfg.channels[ch].exclusive_member = member;
+            self.enforce_exclusive(now_ms, &mut out);
+        }
+        out
+    }
+
+    /// With exclusive mode on, at most one group member may be on: keep the lowest-numbered one
+    /// that is on and switch the other members off. Non-members are left alone.
+    fn enforce_exclusive(&mut self, now_ms: u64, out: &mut Vec<Action>) {
+        if !self.cfg.exclusive {
+            return;
+        }
+        let member = |c: &Config, ch: usize| c.channels[ch].exclusive_member;
+        if let Some(first) = (0..CHANNELS).find(|&ch| self.relays[ch] && member(&self.cfg, ch)) {
+            for ch in (first + 1)..CHANNELS {
+                if member(&self.cfg, ch) {
+                    self.set_relay(ch, false, now_ms, out, false);
                 }
             }
         }
-        out
     }
 
     pub fn set_buzzer(&mut self, on: bool) {
@@ -497,10 +517,10 @@ impl Controller {
         if on && self.capped[ch] {
             return; // daily cap reached: stays off until midnight, whoever asks
         }
-        if on && self.cfg.exclusive {
-            // Interlock: others off before this one goes on (break-before-make).
+        if on && self.cfg.exclusive && self.cfg.channels[ch].exclusive_member {
+            // Interlock: other group members off before this one goes on (break-before-make).
             for other in 0..CHANNELS {
-                if other != ch && self.relays[other] {
+                if other != ch && self.relays[other] && self.cfg.channels[other].exclusive_member {
                     self.relays[other] = false;
                     self.safeguard.relay_changed(other, false, now_ms);
                     out.push(Action::SetRelay { ch: other, on: false });
@@ -751,6 +771,43 @@ mod tests {
         c.on_local_command(3, true, 8000);
         assert_eq!(c.relays(), [false, false, false, true, false, false], "ch1 off, ch4 on");
         assert_eq!(relays(&c.tick(9000, Some(t(20, 0)))), vec![(3, false), (1, true)]);
+    }
+
+    #[test]
+    fn exclusive_group_only_affects_members() {
+        let mut cfg = Config::default();
+        cfg.exclusive = true;
+        cfg.channels[5].exclusive_member = false; // relay 6 = master valve, outside the group
+        let mut c = Controller::new(cfg, Schedule::default());
+        c.on_time_known(0, t(12, 0));
+        c.on_ha_connected(0);
+        assert_eq!(relays(&c.on_ha_command(5, true, 0)), vec![(5, true)]);
+        // Members switch each other off but never touch the non-member.
+        assert_eq!(relays(&c.on_ha_command(0, true, 1)), vec![(0, true)]);
+        assert_eq!(relays(&c.on_ha_command(1, true, 2)), vec![(0, false), (1, true)]);
+        assert_eq!(c.relays(), [false, true, false, false, false, true]);
+        // Switching the non-member on or off never affects members.
+        c.on_ha_command(5, false, 3);
+        assert_eq!(relays(&c.on_ha_command(5, true, 4)), vec![(5, true)]);
+        assert_eq!(c.relays(), [false, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn changing_membership_enforces_one_member_on() {
+        let mut c = Controller::new(Config::default(), Schedule::default());
+        c.on_time_known(0, t(12, 0));
+        c.on_ha_connected(0);
+        c.set_exclusive_member(2, false, 0);
+        c.set_exclusive(true, 0);
+        c.on_ha_command(1, true, 0);
+        c.on_ha_command(2, true, 0); // not a member: both stay on
+        assert_eq!(c.relays(), [false, true, true, false, false, false]);
+        // Putting relay 3 into the group leaves two members on: the lowest one is kept.
+        assert_eq!(relays(&c.set_exclusive_member(2, true, 1)), vec![(2, false)]);
+        assert_eq!(c.relays(), [false, true, false, false, false, false]);
+        // Taking a relay out of the group never switches anything.
+        assert!(relays(&c.set_exclusive_member(1, false, 2)).is_empty());
+        assert!(!c.config().channels[1].exclusive_member);
     }
 
     #[test]

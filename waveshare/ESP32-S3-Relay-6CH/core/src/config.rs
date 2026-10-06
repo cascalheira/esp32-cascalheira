@@ -32,7 +32,7 @@ impl Mode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChannelConfig {
     /// Maximum time a relay may stay on, in minutes. 0 disables the safeguard.
     #[serde(default)]
@@ -43,6 +43,17 @@ pub struct ChannelConfig {
     /// Maximum total on-time per local day, in minutes. 0 disables the cap.
     #[serde(default)]
     pub max_daily_min: u16,
+    /// Member of the exclusive group: with exclusive mode on, switching this relay on turns the
+    /// other members off. Non-members are never affected. Default true (every relay is a member),
+    /// which is also what configs saved before this field existed get.
+    #[serde(default = "default_true")]
+    pub exclusive_member: bool,
+}
+
+impl Default for ChannelConfig {
+    fn default() -> Self {
+        ChannelConfig { max_on_min: 0, safe_state: false, max_daily_min: 0, exclusive_member: true }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +117,9 @@ mod tests {
         assert_eq!(partial.offline_grace_s, 0);
         assert!(!partial.exclusive, "old configs without the field default to off");
         assert!(partial.buzzer, "buzzer defaults to on for old configs");
+        // A config saved before exclusive groups existed keeps every relay in the group.
+        let old = Config::from_json(r#"{"channels":[{"max_on_min":25},{},{},{},{},{}],"exclusive":true}"#).unwrap();
+        assert!(old.channels.iter().all(|c| c.exclusive_member));
         assert_eq!(Mode::parse(" OFF "), Some(Mode::Off));
         assert_eq!(Mode::parse("nope"), None);
     }

@@ -96,7 +96,8 @@ The device page shows everything the board offers. What each control does:
 | Relay N total on time | Lifetime minutes the relay has been on. Kept across restarts. Home Assistant's Statistics dashboard can chart it per day, week or month (it is a "total increasing" sensor). |
 | Relay N daily limit reached | On while the relay is blocked by its daily budget. |
 | Mode | *Auto*: Home Assistant controls the relays, and the stored schedule takes over when Home Assistant is offline. *Manual*: Home Assistant only; the schedule never runs. *Off*: all relays off, commands ignored. |
-| Exclusive mode | Only one relay on at a time: switching a relay on switches all others off first. Leave off if one relay is a master valve that must run together with a zone. |
+| Exclusive mode | Only one relay of the exclusive group on at a time: switching a group member on switches the other members off first. |
+| Relay N in exclusive group | Whether the relay belongs to that group (all relays do by default). Take a master valve or pump relay out of the group so it can run together with a zone. Relays outside the group are never switched off by it. |
 | Relay N on when clock unknown | What the relay does after a power cut when the board has no network and does not know the time yet. Default off. |
 | Rain hold / Rain hold until | Suspends the board's **stored schedule** for the given number of hours (0 = off), for example when it is raining and Home Assistant is down. Relays that the schedule had switched on go off at once. It never blocks commands from Home Assistant, which keeps its own rain delay. Survives reboots. |
 | Buzzer | Mutes the buzzer. |
@@ -194,7 +195,7 @@ key on the page. The key is only ever shown there.
 | Setup page shows no networks | Press Rescan and wait a few seconds; scanning takes a moment. |
 | Setup page asks for a "current API key" | You reached the page over the home network, not the setup network. Either enter the key, or hold BOOT 5 s and use the setup network. |
 | A relay switches off by itself after a while | Its max on time fired ("safeguard tripped"). Raise the limit or set it to 0. |
-| Only one relay ever stays on | Exclusive mode is on. |
+| Only one relay ever stays on | Exclusive mode is on and those relays are in the exclusive group. |
 | Relays never move while Home Assistant is down | Mode is *Manual*, or no schedule was stored ("Schedule loaded" off). Edit a schedule in Garden Irrigation to resend it. |
 | Board restarts by itself | Read *Last reset reason*: "BROWNOUT" means a weak power supply; "TASK WATCHDOG" or "PANIC" is a firmware fault. *Last crash* then holds the details to report. |
 | Forgot everything | Factory reset (section 9). |
