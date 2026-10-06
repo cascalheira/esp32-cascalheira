@@ -15,12 +15,12 @@ export RUSTUP_TOOLCHAIN=esp
 RELAY_NO_SEED=1 cargo build --release
 OUT=/tmp/relay-fw-$VER.bin
 espflash save-image --chip esp32s3 --flash-size 16mb target/xtensa-esp32s3-espidf/release/relay-fw "$OUT"
-# Refuse to publish if any seed value still made it into the image.
-if [ -f secrets.env ]; then
-  sed -nE 's/^(WIFI_PASS|NOISE_PSK|WIFI_SSID)=//p' secrets.env | while IFS= read -r v; do
-    if [ -n "$v" ] && grep -q -a -F -- "$v" "$OUT"; then echo "ABORT: a secret from secrets.env is inside $OUT"; exit 1; fi
+# Refuse to publish if any value from any seed file made it into the image.
+for f in secrets*.env(N); do
+  sed -nE 's/^(WIFI_PASS|NOISE_PSK|WIFI_SSID)=//p' "$f" | while IFS= read -r v; do
+    if [ -n "$v" ] && grep -q -a -F -- "$v" "$OUT"; then echo "ABORT: a secret from $f is inside $OUT"; exit 1; fi
   done || exit 1
-fi
+done
 gh release create "$TAG" "$OUT" --repo "$REPO" --title "relay-fw $VER" --notes "$NOTES"
 SUMMARY=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$NOTES")
 cat > release/latest.json <<JSONEOF
